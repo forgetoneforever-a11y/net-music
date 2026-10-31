@@ -103,6 +103,7 @@ private fun NetMusicApp(player: Player?) {
     var currentArtist by remember { mutableStateOf("Локальная медиатека") }
     val preferences = remember { context.getSharedPreferences("net_music_preferences", android.content.Context.MODE_PRIVATE) }
     var favoriteIds by remember { mutableStateOf(preferences.getStringSet("favorites", emptySet())?.toSet() ?: emptySet()) }
+    var recentIds by remember { mutableStateOf(preferences.getString("recent_tracks", "")?.split(",")?.filter { it.isNotBlank() } ?: emptyList()) }
     fun toggleFavorite(track: AudioTrack) {
         favoriteIds = if (track.id.toString() in favoriteIds) favoriteIds - track.id.toString() else favoriteIds + track.id.toString()
         preferences.edit().putStringSet("favorites", favoriteIds).apply()
@@ -179,6 +180,8 @@ private fun NetMusicApp(player: Player?) {
             ).build()
         }
         p.setMediaItems(items, index, 0L)
+        recentIds = (listOf(tracks[index].id.toString()) + recentIds.filterNot { it == tracks[index].id.toString() }).take(30)
+        preferences.edit().putString("recent_tracks", recentIds.joinToString(",")).apply()
         p.prepare()
         p.play()
         currentIndex = index
@@ -198,7 +201,7 @@ private fun NetMusicApp(player: Player?) {
                     if (screen == "player") {
                         PlayerScreen(player, currentTitle, currentArtist, isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
-                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() })
+                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
@@ -218,7 +221,7 @@ private fun NetMusicApp(player: Player?) {
 }
 
 @Composable
-private fun HomeScreen(trackCount: Int, favoriteCount: Int, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onRefresh: () -> Unit) {
+private fun HomeScreen(trackCount: Int, favoriteCount: Int, recentTracks: List<AudioTrack>, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onRefresh: () -> Unit, onPlayRecent: (AudioTrack) -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item {
             Column(Modifier.padding(top = 28.dp)) {
@@ -242,6 +245,19 @@ private fun HomeScreen(trackCount: Int, favoriteCount: Int, loading: Boolean, pe
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CollectionCard("На устройстве", when { !permissionGranted -> "Нужен доступ к музыке"; loading -> "Сканируем медиатеку…"; else -> "$trackCount треков" }, Modifier.weight(1f), Color(0xFF7D2024), onClick = if (permissionGranted) onRefresh else onOpenLibrary)
                 CollectionCard("Любимые", "$favoriteCount треков", Modifier.weight(1f), Color(0xFF333333), onClick = onOpenLibrary)
+            }
+        }
+        if (recentTracks.isNotEmpty()) {
+            item { SectionTitle("Недавно слушали") }
+            itemsIndexed(recentTracks.take(5)) { _, track ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPlayRecent(track) }.padding(vertical = 7.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AlbumArtwork(track, Modifier.size(44.dp))
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(track.artist, color = Muted, fontSize = 12.sp, maxLines = 1)
+                    }
+                    Icon(Icons.Default.PlayArrow, "Слушать", tint = Accent)
+                }
             }
         }
         item { SectionTitle("Подключённые сервисы") }
