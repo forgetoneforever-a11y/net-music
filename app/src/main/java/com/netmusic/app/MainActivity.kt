@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import coil.compose.AsyncImage
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
@@ -55,7 +56,7 @@ private val Muted = Color(0xFF929292)
 private val Accent = Color(0xFFE9D9B8)
 private val ioExecutor = Executors.newSingleThreadExecutor()
 
-data class AudioTrack(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long)
+data class AudioTrack(val id: Long, val title: String, val artist: String, val album: String, val albumId: Long, val uri: Uri, val duration: Long)
 
 class MainActivity : ComponentActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -100,6 +101,12 @@ private fun NetMusicApp(player: Player?) {
     var isPlaying by remember { mutableStateOf(false) }
     var currentTitle by remember { mutableStateOf("Выбери свой звук") }
     var currentArtist by remember { mutableStateOf("Локальная медиатека") }
+    val preferences = remember { context.getSharedPreferences("net_music_preferences", android.content.Context.MODE_PRIVATE) }
+    var favoriteIds by remember { mutableStateOf(preferences.getStringSet("favorites", emptySet())?.toSet() ?: emptySet()) }
+    fun toggleFavorite(track: AudioTrack) {
+        favoriteIds = if (track.id.toString() in favoriteIds) favoriteIds - track.id.toString() else favoriteIds + track.id.toString()
+        preferences.edit().putStringSet("favorites", favoriteIds).apply()
+    }
 
     val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
     val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -115,7 +122,8 @@ private fun NetMusicApp(player: Player?) {
             val projection = arrayOf(
                 MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DISPLAY_NAME
+                MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DISPLAY_NAME,
+                MediaStore.Audio.Media.ALBUM_ID
             )
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
             try {
@@ -126,6 +134,7 @@ private fun NetMusicApp(player: Player?) {
                     val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                     val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                     val displayNameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
                         val rawTitle = cursor.getString(titleCol).orEmpty()
@@ -134,7 +143,8 @@ private fun NetMusicApp(player: Player?) {
                         val artist = cleanMediaText(cursor.getString(artistCol).orEmpty()).takeUnless { it.equals("<unknown>", true) || it.isBlank() } ?: "Неизвестный исполнитель"
                         val album = cleanMediaText(cursor.getString(albumCol).orEmpty())
                         val duration = cursor.getLong(durationCol)
-                        found += AudioTrack(id, title, artist, album, ContentUris.withAppendedId(collection, id), duration)
+                        val albumId = cursor.getLong(albumIdCol)
+                        found += AudioTrack(id, title, artist, album, albumId, ContentUris.withAppendedId(collection, id), duration)
                     }
                 }
             } catch (_: SecurityException) { }
@@ -189,10 +199,10 @@ private fun NetMusicApp(player: Player?) {
                         PlayerScreen(player, currentTitle, currentArtist, isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
                         Tab.HOME -> HomeScreen(tracks.size, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() })
-                        Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted,
+                        Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
                             onRequestPermission = { requestPermission.launch(permission) },
-                            onRefresh = { scanLibrary() }, onPlay = { playTrack(it) })
-                        Tab.SEARCH -> SearchScreen(tracks, onPlay = { playTrack(it) })
+                            onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
+                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
                         Tab.SETTINGS -> SettingsScreen()
                     }
                 }
@@ -246,14 +256,36 @@ private fun HomeScreen(trackCount: Int, loading: Boolean, permissionGranted: Boo
 }
 
 @Composable
-private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: Boolean, onRequestPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Int) -> Unit) {
+private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: Boolean, favorites: Set<String>, onRequestPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
+    var sortMenu by remember { mutableStateOf(false) }
+    var sortMode by remember { mutableStateOf("Название") }
+    var onlyFavorites by remember { mutableStateOf(false) }
+    val visibleTracks = remember(tracks, favorites, onlyFavorites, sortMode) {
+        val source = if (onlyFavorites) tracks.filter { it.id.toString() in favorites } else tracks
+        when (sortMode) {
+            "Исполнитель" -> source.sortedBy { it.artist.lowercase() }
+            "Альбом" -> source.sortedBy { it.album.lowercase() }
+            "Длительность" -> source.sortedBy { it.duration }
+            else -> source.sortedBy { it.title.lowercase() }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Медиатека", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                 Text("${tracks.size} треков на устройстве", color = Muted, fontSize = 13.sp)
             }
-            IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = Color.White) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { onlyFavorites = !onlyFavorites }) { Icon(Icons.Default.Favorite, "Избранное", tint = if (onlyFavorites) Accent else Muted) }
+                Box {
+                    IconButton(onClick = { sortMenu = true }) { Icon(Icons.Default.Sort, "Сортировка", tint = Color.White) }
+                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        listOf("Название", "Исполнитель", "Альбом", "Длительность").forEach { mode ->
+                            DropdownMenuItem(text = { Text(mode) }, onClick = { sortMode = mode; sortMenu = false })
+                        }
+                    }
+                }
+                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = Color.White) }
         }
         Spacer(Modifier.height(18.dp))
         when {
@@ -266,16 +298,18 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
             loading -> CircularProgressIndicator(color = Accent, modifier = Modifier.align(Alignment.CenterHorizontally))
             tracks.isEmpty() -> Text("Музыка не найдена. Добавь аудиофайлы на устройство и обнови список.", color = Muted)
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(tracks) { index, track ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onPlay(index) }.padding(vertical = 10.dp, horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Panel), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.MusicNote, null, tint = Accent)
-                        }
+                itemsIndexed(visibleTracks) { _, track ->
+                    val originalIndex = tracks.indexOfFirst { it.id == track.id }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onPlay(originalIndex) }.padding(vertical = 10.dp, horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AlbumArtwork(track, Modifier.size(52.dp))
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
                             Text(track.artist, color = Muted, fontSize = 12.sp, maxLines = 1)
                         }
                         Text(formatTime(track.duration), color = Muted, fontSize = 11.sp)
+                        IconButton(onClick = { onToggleFavorite(track) }) {
+                            Icon(Icons.Default.Favorite, "В избранное", tint = if (track.id.toString() in favorites) Color(0xFFE45B68) else Muted)
+                        }
                     }
                 }
             }
@@ -284,21 +318,25 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
 }
 
 @Composable
-private fun SearchScreen(tracks: List<AudioTrack>, onPlay: (Int) -> Unit) {
+private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, onPlay: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
     var query by remember { mutableStateOf("") }
-    val results = tracks.withIndex().filter { it.value.title.contains(query, true) || it.value.artist.contains(query, true) }
+    val results = tracks.withIndex().filter { it.value.title.contains(query, true) || it.value.artist.contains(query, true) || it.value.album.contains(query, true) }
     Column(Modifier.fillMaxSize().padding(22.dp)) {
         Text("Поиск", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Название трека или артист") }, singleLine = true,
+            placeholder = { Text("Название, артист или альбом") }, singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Accent, unfocusedBorderColor = Panel))
         Spacer(Modifier.height(12.dp))
         LazyColumn {
             itemsIndexed(results) { _, item ->
-                Column(Modifier.fillMaxWidth().clickable { onPlay(item.index) }.padding(vertical = 12.dp)) {
-                    Text(item.value.title, color = Color.White)
-                    Text(item.value.artist, color = Muted, fontSize = 12.sp)
+                Row(Modifier.fillMaxWidth().clickable { onPlay(item.index) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AlbumArtwork(item.value, Modifier.size(46.dp))
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(item.value.title, color = Color.White, maxLines = 1)
+                        Text("${item.value.artist} · ${item.value.album}", color = Muted, fontSize = 12.sp, maxLines = 1)
+                    }
+                    IconButton(onClick = { onToggleFavorite(item.value) }) { Icon(Icons.Default.Favorite, "В избранное", tint = if (item.value.id.toString() in favorites) Color(0xFFE45B68) else Muted) }
                 }
             }
         }
@@ -387,6 +425,19 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                 Icon(icon, contentDescription = tab.title, tint = if (selected == tab) Color.White else Muted, modifier = Modifier.size(23.dp))
                 Text(tab.title, color = if (selected == tab) Color.White else Muted, fontSize = 9.sp)
             }
+        }
+    }
+}
+
+@Composable
+@Composable
+private fun AlbumArtwork(track: AudioTrack, modifier: Modifier = Modifier) {
+    val artwork = if (track.albumId > 0) Uri.parse("content://media/external/audio/albumart/${track.albumId}") else null
+    Box(modifier.clip(RoundedCornerShape(12.dp)).background(Panel), contentAlignment = Alignment.Center) {
+        if (artwork != null) {
+            AsyncImage(model = artwork, contentDescription = "Обложка ${track.album}", modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        } else {
+            Icon(Icons.Default.MusicNote, null, tint = Accent)
         }
     }
 }
