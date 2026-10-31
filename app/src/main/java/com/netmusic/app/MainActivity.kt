@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,6 +89,7 @@ private enum class Tab(val title: String) {
 
 @Composable
 private fun NetMusicApp(player: Player?) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(Tab.HOME) }
     var showPlayer by remember { mutableStateOf(false) }
     var tracks by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
@@ -114,7 +118,7 @@ private fun NetMusicApp(player: Player?) {
             )
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
             try {
-                contentResolver.query(collection, projection, selection, null, "${MediaStore.Audio.Media.TITLE} ASC")?.use { cursor ->
+                context.contentResolver.query(collection, projection, selection, null, "${MediaStore.Audio.Media.TITLE} ASC")?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                     val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                     val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -130,12 +134,12 @@ private fun NetMusicApp(player: Player?) {
                     }
                 }
             } catch (_: SecurityException) { }
-            runOnUiThread { tracks = found; loading = false }
+            Handler(Looper.getMainLooper()).post { tracks = found; loading = false }
         }
     }
 
     LaunchedEffect(Unit) {
-        permissionGranted = ContextCompat.checkSelfPermission(this@NetMusicAppContext(), permission) == PackageManager.PERMISSION_GRANTED
+        permissionGranted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
     DisposableEffect(player) {
