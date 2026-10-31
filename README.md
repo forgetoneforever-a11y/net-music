@@ -6,15 +6,18 @@ Net.music is an Android music hub designed to bring supported streaming services
 
 ## Current status
 
-This repository contains the first Android app foundation and a clickable Jetpack Compose UI prototype.
+The app now includes a local audio library and a real Media3 playback engine, alongside the Jetpack Compose interface.
 
 - Dark minimal interface inspired by the supplied design references
 - Home, Library, Search and Settings tabs
 - Mini-player and expanded player demo screens
 - Initial service connection placeholders for Spotify, SoundCloud and YouTube Music
-- Android Media3 dependencies included for the playback layer
+- Reads music from the device through Android MediaStore after runtime permission is granted
+- Plays local audio with AndroidX Media3 ExoPlayer
+- MediaSessionService supports background playback and system media controls
+- Track search, queue navigation, seek bar and mini-player controls
 
-**Important:** playback and streaming-service authorization are not connected yet. The player controls in this first milestone are UI demonstrations, not real audio playback.
+**Current limitation:** Spotify, SoundCloud and YouTube Music are still placeholders; no provider login or cloud catalog is connected yet. The current working playback source is local audio stored on the Android device.
 
 ## Tech stack
 
@@ -38,12 +41,12 @@ The APK will be generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Planned milestones
 
-1. Stabilize the Android UI and navigation
-2. Add local device library access and real Media3 playback
+1. Test local library permissions and playback across Android versions
+2. Polish the player, queue, favourites and listening history
 3. Add SoundCloud integration using its currently supported API capabilities
 4. Add Spotify App Remote authorization and playback control where supported
-5. Add unified search, playlists, favourites and listening history
-6. Add CI APK builds with GitHub Actions
+5. Add unified search and playlist management
+6. Verify CI APK builds and publish installable releases
 
 ## Streaming-service notes
 
