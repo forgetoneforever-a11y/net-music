@@ -199,7 +199,7 @@ private fun NetMusicApp(player: Player?) {
             ) { screen ->
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (screen == "player") {
-                        PlayerScreen(player, currentTitle, currentArtist, isPlaying, { showPlayer = false })
+                        PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
                         Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
@@ -375,7 +375,7 @@ private fun SettingsScreen() {
 }
 
 @Composable
-private fun PlayerScreen(player: Player?, title: String, artist: String, isPlaying: Boolean, onClose: () -> Unit) {
+private fun PlayerScreen(player: Player?, title: String, artist: String, track: AudioTrack?, isPlaying: Boolean, onClose: () -> Unit) {
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     LaunchedEffect(player, isPlaying) {
@@ -392,9 +392,13 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, isPlayi
             Text("•••", color = Color.White)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(28.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF6A343B), Color(0xFF24202A), Color(0xFF101010)))), contentAlignment = Alignment.Center) {
-                Text("NET", color = Color.White.copy(alpha = .85f), fontSize = 64.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
+            if (track != null) {
+                AlbumArtwork(track, Modifier.fillMaxWidth().height(300.dp))
+            } else {
+                Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(28.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF6A343B), Color(0xFF24202A), Color(0xFF101010)))), contentAlignment = Alignment.Center) {
+                    Text("NET", color = Color.White.copy(alpha = .85f), fontSize = 64.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
+                }
             }
             Text(title, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(artist, color = Muted)
@@ -406,11 +410,17 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, isPlayi
                 Text(formatTime(duration), color = Muted, fontSize = 12.sp)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) {
+                    Icon(Icons.Default.Shuffle, "Перемешать", tint = if (player?.shuffleModeEnabled == true) Accent else Muted)
+                }
                 IconButton(onClick = { player?.seekToPreviousMediaItem() }) { Icon(Icons.Default.SkipPrevious, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
-                Box(Modifier.size(70.dp).clip(CircleShape).background(Accent).clickable { if (player?.isPlaying == true) player.pause() else player?.play() }, contentAlignment = Alignment.Center) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(38.dp))
+                Box(Modifier.size(66.dp).clip(CircleShape).background(Accent).clickable { if (player?.isPlaying == true) player.pause() else player?.play() }, contentAlignment = Alignment.Center) {
+                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(36.dp))
                 }
                 IconButton(onClick = { player?.seekToNextMediaItem() }) { Icon(Icons.Default.SkipNext, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
+                IconButton(onClick = { player?.repeatMode = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ONE }) {
+                    Icon(Icons.Default.RepeatOne, "Повтор трека", tint = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Accent else Muted)
+                }
             }
         }
     }
