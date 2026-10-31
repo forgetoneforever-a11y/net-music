@@ -286,6 +286,7 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
                     }
                 }
                 IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = Color.White) }
+            }
         }
         Spacer(Modifier.height(18.dp))
         when {
@@ -429,7 +430,6 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
     }
 }
 
-@Composable
 @Composable
 private fun AlbumArtwork(track: AudioTrack, modifier: Modifier = Modifier) {
     val artwork = if (track.albumId > 0) Uri.parse("content://media/external/audio/albumart/${track.albumId}") else null
