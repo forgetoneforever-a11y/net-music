@@ -1,5 +1,5 @@
 import express from "express";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -21,13 +21,6 @@ const TICKET_TTL_MS = 60 * 1000;
 
 function randomToken(bytes = 32) {
   return randomBytes(bytes).toString("base64url");
-}
-
-function safeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 function prune(map) {
@@ -90,7 +83,7 @@ app.get("/auth/spotify/callback", async (req, res) => {
 
   prune(pendingStates);
   const pending = typeof state === "string" ? pendingStates.get(state) : null;
-  if (!pending || !safeEqual(state, state)) {
+  if (!pending) {
     return res.status(400).type("text").send("Invalid or expired OAuth state. Please try again.");
   }
   pendingStates.delete(state);
