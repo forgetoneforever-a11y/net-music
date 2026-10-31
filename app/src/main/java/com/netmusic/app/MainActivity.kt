@@ -198,7 +198,7 @@ private fun NetMusicApp(player: Player?) {
                     if (screen == "player") {
                         PlayerScreen(player, currentTitle, currentArtist, isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
-                        Tab.HOME -> HomeScreen(tracks.size, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() })
+                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
@@ -218,7 +218,7 @@ private fun NetMusicApp(player: Player?) {
 }
 
 @Composable
-private fun HomeScreen(trackCount: Int, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onRefresh: () -> Unit) {
+private fun HomeScreen(trackCount: Int, favoriteCount: Int, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onRefresh: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item {
             Column(Modifier.padding(top = 28.dp)) {
@@ -241,7 +241,7 @@ private fun HomeScreen(trackCount: Int, loading: Boolean, permissionGranted: Boo
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CollectionCard("На устройстве", when { !permissionGranted -> "Нужен доступ к музыке"; loading -> "Сканируем медиатеку…"; else -> "$trackCount треков" }, Modifier.weight(1f), Color(0xFF7D2024), onClick = if (permissionGranted) onRefresh else onOpenLibrary)
-                CollectionCard("Любимые", "Твоя коллекция", Modifier.weight(1f), Color(0xFF333333))
+                CollectionCard("Любимые", "$favoriteCount треков", Modifier.weight(1f), Color(0xFF333333), onClick = onOpenLibrary)
             }
         }
         item { SectionTitle("Подключённые сервисы") }
