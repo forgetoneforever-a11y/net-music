@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.text.Html
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -114,7 +115,7 @@ private fun NetMusicApp(player: Player?) {
             val projection = arrayOf(
                 MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.DURATION
+                MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DISPLAY_NAME
             )
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
             try {
@@ -124,11 +125,14 @@ private fun NetMusicApp(player: Player?) {
                     val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                     val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                     val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                    val displayNameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
-                        val title = cursor.getString(titleCol) ?: "Без названия"
-                        val artist = cursor.getString(artistCol)?.takeUnless { it == "<unknown>" } ?: "Неизвестный исполнитель"
-                        val album = cursor.getString(albumCol) ?: ""
+                        val rawTitle = cursor.getString(titleCol).orEmpty()
+                        val fileName = cursor.getString(displayNameCol).orEmpty().substringBeforeLast(".", cursor.getString(displayNameCol).orEmpty())
+                        val title = cleanMediaText(rawTitle).ifBlank { cleanMediaText(fileName).ifBlank { "Без названия" } }
+                        val artist = cleanMediaText(cursor.getString(artistCol).orEmpty()).takeUnless { it.equals("<unknown>", true) || it.isBlank() } ?: "Неизвестный исполнитель"
+                        val album = cleanMediaText(cursor.getString(albumCol).orEmpty())
                         val duration = cursor.getLong(durationCol)
                         found += AudioTrack(id, title, artist, album, ContentUris.withAppendedId(collection, id), duration)
                     }
@@ -184,7 +188,7 @@ private fun NetMusicApp(player: Player?) {
                     if (screen == "player") {
                         PlayerScreen(player, currentTitle, currentArtist, isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
-                        Tab.HOME -> HomeScreen(tracks.size, onOpenLibrary = { selectedTab = Tab.LIBRARY })
+                        Tab.HOME -> HomeScreen(tracks.size, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) })
@@ -204,7 +208,7 @@ private fun NetMusicApp(player: Player?) {
 }
 
 @Composable
-private fun HomeScreen(trackCount: Int, onOpenLibrary: () -> Unit) {
+private fun HomeScreen(trackCount: Int, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onRefresh: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item {
             Column(Modifier.padding(top = 28.dp)) {
@@ -226,7 +230,7 @@ private fun HomeScreen(trackCount: Int, onOpenLibrary: () -> Unit) {
         item { SectionTitle("Твоя музыка") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CollectionCard("На устройстве", "$trackCount треков", Modifier.weight(1f), Color(0xFF7D2024))
+                CollectionCard("На устройстве", when { !permissionGranted -> "Нужен доступ к музыке"; loading -> "Сканируем медиатеку…"; else -> "$trackCount треков" }, Modifier.weight(1f), Color(0xFF7D2024), onClick = if (permissionGranted) onRefresh else onOpenLibrary)
                 CollectionCard("Любимые", "Твоя коллекция", Modifier.weight(1f), Color(0xFF333333))
             }
         }
@@ -391,8 +395,8 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
 private fun SectionTitle(title: String) { Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold) }
 
 @Composable
-private fun CollectionCard(title: String, subtitle: String, modifier: Modifier, color: Color) {
-    Column(modifier.clip(RoundedCornerShape(22.dp)).background(color).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun CollectionCard(title: String, subtitle: String, modifier: Modifier, color: Color, onClick: () -> Unit = {}) {
+    Column(modifier.clip(RoundedCornerShape(22.dp)).background(color).clickable { onClick() }.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Default.Favorite, null, tint = Color.White.copy(alpha = .9f), modifier = Modifier.size(22.dp))
         Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
         Text(subtitle, color = Color.White.copy(alpha = .7f), fontSize = 11.sp)
@@ -408,6 +412,17 @@ private fun ServiceRow(name: String, status: String, mark: String, color: Color)
             Text(status, color = Muted, fontSize = 11.sp)
         }
     }
+}
+
+private fun cleanMediaText(value: String): String {
+    if (value.isBlank()) return ""
+    var decoded = value.trim()
+    repeat(2) {
+        val next = Html.fromHtml(decoded, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+        if (next == decoded) return@repeat
+        decoded = next
+    }
+    return decoded.replace(Regex("\\s+"), " ").trim()
 }
 
 private fun formatTime(ms: Long): String {
