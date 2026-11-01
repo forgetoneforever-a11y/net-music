@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -924,82 +925,100 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                queueRevision++
-            }
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                queueRevision++
-            }
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { queueRevision++ }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { queueRevision++ }
         }
         player?.addListener(listener)
         onDispose { player?.removeListener(listener) }
     }
 
-    // Read progress from the actual player; do not issue seek commands on every
-    // drag frame, which caused jitter and repeated decoder seeks.
     LaunchedEffect(player) {
         while (true) {
-            val current = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
-            val total = player?.duration?.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
-            duration = total
+            position = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
+            duration = player?.duration?.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
             volume = player?.volume ?: 1f
-            if (!dragging) {
-                position = current
-                seekTarget = current.toFloat()
-            }
+            if (!dragging) seekTarget = position.toFloat()
             kotlinx.coroutines.delay(if (isPlaying) 250 else 700)
         }
     }
 
     val artworkUri = player?.currentMediaItem?.mediaMetadata?.artworkUri
+    val artworkModel: Any? = artworkUri ?: track?.takeIf { it.albumId > 0 }?.let {
+        Uri.parse("content://media/external/audio/albumart/${it.albumId}")
+    }
     val hasQueue = (player?.mediaItemCount ?: 0) > 0
 
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("⌄", color = Color.White, fontSize = 30.sp, modifier = Modifier.clickable { onClose() })
-            Text("СЕЙЧАС ИГРАЕТ", color = Muted, fontSize = 11.sp, letterSpacing = 2.sp)
-            Text("Очередь", color = Accent, fontSize = 13.sp, modifier = Modifier.clickable { showQueue = true })
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val coverSize = minOf(maxWidth * .82f, maxHeight * .43f, 350.dp)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF282126), Color(0xFF111013), Background)))) {
+            if (artworkModel != null) {
+                AsyncImage(
+                    model = artworkModel,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().blur(58.dp).graphicsLayer { alpha = .27f },
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            }
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x88201B20), Color(0xCC080808), Background))))
         }
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            val coverScale by animateFloatAsState(if (isPlaying) 1f else .96f, animationSpec = tween(450), label = "coverScale")
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.KeyboardArrowDown, "Свернуть плеер", tint = Color.White, modifier = Modifier.size(30.dp))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("NET MUSIC", color = Color.White.copy(alpha = .9f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.4.sp)
+                    Text("СЕЙЧАС ИГРАЕТ", color = Color.White.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 1.8.sp)
+                }
+                IconButton(onClick = { showQueue = true }, enabled = hasQueue) {
+                    Icon(Icons.Default.QueueMusic, "Очередь воспроизведения", tint = if (hasQueue) Color.White else Muted, modifier = Modifier.size(23.dp))
+                }
+            }
+
+            Spacer(Modifier.weight(.55f))
+
             Box(
-                Modifier.fillMaxWidth().heightIn(max = 300.dp).aspectRatio(1f)
-                    .graphicsLayer { scaleX = coverScale; scaleY = coverScale }
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xFF47343A), Color(0xFF242126), Color(0xFF111111)))),
+                Modifier.size(coverSize).clip(RoundedCornerShape(24.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF40363B), Color(0xFF171519)))),
                 contentAlignment = Alignment.Center
             ) {
-                if (artworkUri != null) {
+                if (artworkModel != null) {
                     AsyncImage(
-                        model = artworkUri,
+                        model = artworkModel,
                         contentDescription = "Обложка $title",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
-                } else if (track != null && track.albumId > 0) {
-                    AlbumArtwork(track, Modifier.fillMaxSize())
                 } else {
-                    Text("NET", color = Color.White.copy(alpha = .9f), fontSize = 64.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.MusicNote, null, tint = Accent, modifier = Modifier.size(58.dp))
+                        Text("NET MUSIC", color = Color.White.copy(alpha = .65f), fontSize = 10.sp, letterSpacing = 2.sp)
+                    }
                 }
             }
-            Text(title, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(artist, color = Muted, maxLines = 1)
-            AudioVisualizer(isPlaying = isPlaying, modifier = Modifier.padding(top = 2.dp))
-        }
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.weight(.55f))
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(artist, color = Color.White.copy(alpha = .62f), fontSize = 14.sp, maxLines = 1)
+                }
+                IconButton(onClick = { showQueue = true }, enabled = hasQueue) {
+                    Icon(Icons.Default.MoreHoriz, "Дополнительные действия", tint = Color.White.copy(alpha = .72f))
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
+
             Slider(
                 value = if (dragging) seekTarget.coerceIn(0f, duration.coerceAtLeast(1L).toFloat())
                     else position.coerceAtMost(duration).toFloat(),
-                onValueChange = {
-                    dragging = true
-                    seekTarget = it
-                },
+                onValueChange = { dragging = true; seekTarget = it },
                 onValueChangeFinished = {
                     player?.seekTo(seekTarget.toLong().coerceIn(0L, duration.coerceAtLeast(0L)))
                     position = seekTarget.toLong()
@@ -1007,25 +1026,35 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
                 },
                 enabled = duration > 0L && hasQueue,
                 valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
-                colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent)
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.White,
+                    inactiveTrackColor = Color.White.copy(alpha = .22f)
+                )
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatTime(if (dragging) seekTarget.toLong() else position), color = Muted, fontSize = 12.sp)
-                Text(formatTime(duration), color = Muted, fontSize = 12.sp)
+            Row(Modifier.fillMaxWidth().padding(top = 0.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatTime(if (dragging) seekTarget.toLong() else position), color = Color.White.copy(alpha = .55f), fontSize = 11.sp)
+                Text(formatTime(duration), color = Color.White.copy(alpha = .55f), fontSize = 11.sp)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+
+            Spacer(Modifier.height(15.dp))
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }, enabled = hasQueue) {
-                    Icon(Icons.Default.Shuffle, "Перемешать", tint = if (player?.shuffleModeEnabled == true) Accent else Muted)
+                    Icon(Icons.Default.Shuffle, "Перемешать", tint = if (player?.shuffleModeEnabled == true) Accent else Color.White.copy(alpha = .55f))
                 }
-                IconButton(onClick = { player?.seekToPreviousMediaItem() }, enabled = hasQueue && (player?.hasPreviousMediaItem() == true)) {
+                IconButton(onClick = { player?.seekToPreviousMediaItem() }, enabled = hasQueue && player?.hasPreviousMediaItem() == true) {
                     Icon(Icons.Default.SkipPrevious, "Предыдущий трек", tint = Color.White, modifier = Modifier.size(34.dp))
                 }
-                Box(Modifier.size(66.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFFFE8BE), Accent))).clickable(enabled = hasQueue) {
-                    if (player?.isPlaying == true) player.pause() else player?.play()
-                }, contentAlignment = Alignment.Center) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Воспроизведение", tint = Color.Black, modifier = Modifier.size(36.dp))
+                Box(
+                    Modifier.size(70.dp).clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(Color(0xFFFFF1D8), Accent)))
+                        .clickable(enabled = hasQueue) { if (player?.isPlaying == true) player.pause() else player?.play() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Воспроизведение", tint = Color(0xFF111111), modifier = Modifier.size(38.dp))
                 }
-                IconButton(onClick = { player?.seekToNextMediaItem() }, enabled = hasQueue && (player?.hasNextMediaItem() == true)) {
+                IconButton(onClick = { player?.seekToNextMediaItem() }, enabled = hasQueue && player?.hasNextMediaItem() == true) {
                     Icon(Icons.Default.SkipNext, "Следующий трек", tint = Color.White, modifier = Modifier.size(34.dp))
                 }
                 IconButton(onClick = {
@@ -1036,27 +1065,33 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
                     }
                 }, enabled = hasQueue) {
                     val repeatIcon = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat
-                    Icon(repeatIcon, "Режим повтора", tint = if (player?.repeatMode != Player.REPEAT_MODE_OFF) Accent else Muted)
+                    Icon(repeatIcon, "Повтор", tint = if (player?.repeatMode != Player.REPEAT_MODE_OFF) Accent else Color.White.copy(alpha = .55f))
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Default.VolumeDown, null, tint = Muted, modifier = Modifier.size(19.dp))
+
+            Spacer(Modifier.height(14.dp))
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Default.VolumeDown, null, tint = Color.White.copy(alpha = .5f), modifier = Modifier.size(18.dp))
                 Slider(
                     value = volume.coerceIn(0f, 1f),
-                    onValueChange = { next -> volume = next; player?.volume = next },
+                    onValueChange = { volume = it; player?.volume = it },
                     modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent)
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = .2f))
                 )
-                Icon(Icons.Default.VolumeUp, null, tint = Muted, modifier = Modifier.size(19.dp))
+                Icon(Icons.Default.VolumeUp, null, tint = Color.White.copy(alpha = .5f), modifier = Modifier.size(18.dp))
             }
+            Spacer(Modifier.height(8.dp))
         }
     }
 
     if (showQueue) {
-        val queueItems = remember(player, queueRevision) { (0 until (player?.mediaItemCount ?: 0)).map { index ->
-            val metadata = player?.getMediaItemAt(index)?.mediaMetadata
-            Triple(index, metadata?.title?.toString().orEmpty().ifBlank { "Трек " + (index + 1) }, metadata?.artist?.toString().orEmpty())
-        } }
+        val queueItems = remember(player, queueRevision) {
+            (0 until (player?.mediaItemCount ?: 0)).map { index ->
+                val metadata = player?.getMediaItemAt(index)?.mediaMetadata
+                Triple(index, metadata?.title?.toString().orEmpty().ifBlank { "Трек ${index + 1}" }, metadata?.artist?.toString().orEmpty())
+            }
+        }
         AlertDialog(
             onDismissRequest = { showQueue = false },
             title = { Text("Очередь воспроизведения") },
@@ -1078,7 +1113,7 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
                                 Text(item.third, color = Muted, fontSize = 11.sp, maxLines = 1)
                             }
                             if (item.first == player?.currentMediaItemIndex) Text("Сейчас", color = Accent, fontSize = 10.sp)
-                            else IconButton(onClick = { player?.removeMediaItem(item.first) }) {
+                            else IconButton(onClick = { player?.removeMediaItem(item.first); queueRevision++ }) {
                                 Icon(Icons.Default.Close, "Убрать из очереди", tint = Muted)
                             }
                         }
@@ -1092,7 +1127,6 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
         )
     }
 }
-
 
 @Composable
 private fun AudioVisualizer(isPlaying: Boolean, modifier: Modifier = Modifier) {
