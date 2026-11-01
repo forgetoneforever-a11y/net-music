@@ -279,7 +279,7 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                         PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
                         Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { openFavorites = false; selectedTab = Tab.LIBRARY }, onOpenFavorites = { openFavorites = true; selectedTab = Tab.LIBRARY }, onOpenSpotify = { selectedTab = Tab.SEARCH }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
-                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, player, onPlayLocal = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
+                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, player, onPlayLocal = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) }, onDownloadsChanged = { scanLibrary() })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds, openFavorites,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
@@ -418,10 +418,13 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
     }
 }
 
-private data class CatalogTrack(val provider: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String)
+private data class CatalogTrack(val id: String, val provider: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String, val downloadUrl: String?, val downloadAllowed: Boolean, val license: String)
 
 @Composable
-private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, player: Player?, onPlayLocal: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
+private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, player: Player?, onPlayLocal: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit, onDownloadsChanged: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("net_music_preferences", Context.MODE_PRIVATE) }
+    var catalogFavorites by remember { mutableStateOf(prefs.getStringSet("catalog_favorites", emptySet())?.toSet() ?: emptySet()) }
     var query by remember { mutableStateOf("") }
     var remote by remember { mutableStateOf<List<CatalogTrack>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
@@ -457,7 +460,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                             val item = array.optJSONObject(i) ?: continue
                             val stream = item.optString("streamUrl")
                             if (stream.isBlank()) continue
-                            add(CatalogTrack(item.optString("provider"), item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream))
+                            add(CatalogTrack(item.optString("id"), item.optString("provider"), item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream, item.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("downloadAllowed", false), item.optString("license")))
                         }
                     }
                     val providers = json.optJSONArray("providers")
