@@ -540,8 +540,10 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                         for (i in 0 until array.length()) {
                             val item = array.optJSONObject(i) ?: continue
                             val stream = item.optString("streamUrl")
-                            if (stream.isBlank()) continue
-                            add(CatalogTrack(item.optString("id"), item.optString("provider"), item.optString("playbackType", "preview"), item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream, item.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("downloadAllowed", false), item.optString("license"), item.optString("externalUrl").takeIf { it.startsWith("https://") }))
+                            val playbackType = item.optString("playbackType", "preview")
+                            // The main catalog intentionally contains full streams only.
+                            if (stream.isBlank() || playbackType != "full") continue
+                            add(CatalogTrack(item.optString("id"), item.optString("provider"), playbackType, item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream, item.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("downloadAllowed", false), item.optString("license"), item.optString("externalUrl").takeIf { it.startsWith("https://") }))
                         }
                     }
                     val providers = json.optJSONArray("providers")
@@ -582,7 +584,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
         Text("Поиск", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        Text("Один поиск · несколько музыкальных каталогов", color = Muted, fontSize = 12.sp)
+        Text("Полные версии · открытые музыкальные каталоги", color = Muted, fontSize = 12.sp)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Трек, исполнитель или жанр") }, singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Accent, unfocusedBorderColor = Panel, cursorColor = Accent))
@@ -616,7 +618,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                         }) {
                             Text(track.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                             Text(track.artist, color = Muted, fontSize = 11.sp, maxLines = 1)
-                            Text(track.provider + if (track.playbackType == "full") " · Полная версия" else " · Превью", color = if (track.playbackType == "full") Accent else Muted, fontSize = 9.sp)
+                            Text(track.provider + " · Полная версия", color = Accent, fontSize = 9.sp)
                         }
                         IconButton(onClick = {
                             val p = player ?: return@IconButton
@@ -626,12 +628,6 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                             if (empty) { p.prepare(); p.play() }
                             Toast.makeText(context, "Добавлено в очередь", Toast.LENGTH_SHORT).show()
                         }) { Icon(Icons.Default.QueueMusic, "В очередь", tint = Muted) }
-                        if (track.playbackType == "preview" && track.externalUrl != null) {
-                            IconButton(onClick = {
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(track.externalUrl))) }
-                                    .onFailure { Toast.makeText(context, "Не удалось открыть страницу трека", Toast.LENGTH_SHORT).show() }
-                            }) { Icon(Icons.Default.OpenInNew, "Полная версия на сайте сервиса", tint = Accent) }
-                        }
                         IconButton(onClick = { toggleCatalogFavorite(track) }) {
                             Icon(Icons.Default.Favorite, "В избранное", tint = if (track.id in catalogFavorites) Color(0xFFE45B68) else Muted)
                         }
