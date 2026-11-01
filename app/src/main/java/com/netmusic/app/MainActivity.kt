@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -916,6 +917,20 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
     var dragging by remember { mutableStateOf(false) }
     var seekTarget by remember { mutableFloatStateOf(0f) }
     var showQueue by remember { mutableStateOf(false) }
+    var queueRevision by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                queueRevision++
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                queueRevision++
+            }
+        }
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
+    }
 
     // Read progress from the actual player; do not issue seek commands on every
     // drag frame, which caused jitter and repeated decoder seeks.
@@ -1021,10 +1036,10 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
     }
 
     if (showQueue) {
-        val queueItems = (0 until (player?.mediaItemCount ?: 0)).map { index ->
+        val queueItems = remember(player, queueRevision) { (0 until (player?.mediaItemCount ?: 0)).map { index ->
             val metadata = player?.getMediaItemAt(index)?.mediaMetadata
             Triple(index, metadata?.title?.toString().orEmpty().ifBlank { "Трек " + (index + 1) }, metadata?.artist?.toString().orEmpty())
-        }
+        } }
         AlertDialog(
             onDismissRequest = { showQueue = false },
             title = { Text("Очередь воспроизведения") },
