@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val title: String) {
-    HOME("Главная"), LIBRARY("Медиатека"), SPOTIFY("Spotify"), SETTINGS("Настройки")
+    HOME("Главная"), SEARCH("Поиск"), LIBRARY("Медиатека"), SPOTIFY("Spotify"), SETTINGS("Настройки")
 }
 
 @Composable
@@ -266,6 +266,7 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                         PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
                         Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
+                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
@@ -430,7 +431,8 @@ private data class SpotifyTrack(
     val artist: String,
     val album: String,
     val imageUrl: String,
-    val previewUrl: String?
+    val previewUrl: String?,
+    val spotifyUri: String
 )
 
 @Composable
@@ -487,7 +489,8 @@ private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
                         item.optString("id"), item.optString("name"),
                         artistNames.joinToString(", ").ifBlank { "Неизвестный исполнитель" },
                         album?.optString("name").orEmpty(), image,
-                        item.optString("preview_url").takeIf { it.isNotBlank() && it != "null" }
+                        item.optString("preview_url").takeIf { it.isNotBlank() && it != "null" },
+                        item.optString("uri")
                     )
                 }
                 Handler(Looper.getMainLooper()).post {
@@ -549,7 +552,11 @@ private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(tracks) { _, track ->
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).clickable {
+                            val target = track.spotifyUri.takeIf { it.startsWith("spotify:") }?.let { Uri.parse(it) }
+                                ?: Uri.parse("https://open.spotify.com/track/${track.id}")
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, target)) }
+                        }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (track.imageUrl.isNotBlank()) {
                                 AsyncImage(model = track.imageUrl, contentDescription = track.album, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)))
                             } else {
@@ -561,7 +568,9 @@ private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
                                 Text(track.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                 Text(track.artist, color = Muted, fontSize = 12.sp, maxLines = 1)
                                 Text(track.album, color = Muted.copy(alpha = .7f), fontSize = 10.sp, maxLines = 1)
+                                Text("Открыть в Spotify ↗", color = Color(0xFF1DB954), fontSize = 10.sp)
                             }
+                            Icon(Icons.Default.OpenInNew, "Открыть в Spotify", tint = Color(0xFF1DB954))
                         }
                     }
                 }
@@ -667,6 +676,7 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
         Tab.entries.forEach { tab ->
             val icon = when (tab) {
                 Tab.HOME -> Icons.Default.Home
+                Tab.SEARCH -> Icons.Default.Search
                 Tab.LIBRARY -> Icons.Default.Folder
                 Tab.SPOTIFY -> Icons.Default.MusicNote
                 Tab.SETTINGS -> Icons.Default.Settings
