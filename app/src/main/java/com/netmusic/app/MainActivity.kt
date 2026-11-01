@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val title: String) {
-    HOME("Домой"), SEARCH("Поиск"), LIBRARY("Файлы"), SPOTIFY("Spotify"), SETTINGS("Ещё")
+    HOME("Домой"), SEARCH("Поиск"), LIBRARY("Моя музыка"), SPOTIFY("Spotify"), SETTINGS("Ещё")
 }
 
 @Composable
@@ -280,9 +280,18 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                     } else when (Tab.valueOf(screen)) {
                         Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { openFavorites = false; selectedTab = Tab.LIBRARY }, onOpenFavorites = { openFavorites = true; selectedTab = Tab.LIBRARY }, onOpenSpotify = { selectedTab = Tab.SEARCH }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
                         Tab.SEARCH -> SearchScreen(tracks, favoriteIds, player, onPlayLocal = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) }, onDownloadsChanged = { scanLibrary() })
-                        Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds, openFavorites,
+                        Tab.LIBRARY -> MyMusicScreen(
+                            tracks = tracks,
+                            loading = loading,
+                            granted = permissionGranted,
+                            favorites = favoriteIds,
+                            historyIds = recentIds,
+                            startWithFavorites = openFavorites,
                             onRequestPermission = { requestPermission.launch(permission) },
-                            onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
+                            onRefresh = { scanLibrary() },
+                            onPlay = { playTrack(it) },
+                            onToggleFavorite = { toggleFavorite(it) }
+                        )
                         Tab.SPOTIFY -> SpotifyScreen(spotifyStatus, onConnectSpotify)
                         Tab.SETTINGS -> SettingsScreen(spotifyStatus, onConnectSpotify, player, tracks.size, recentIds.size, onClearHistory = { recentIds = emptyList(); preferences.edit().remove("recent_tracks").apply() }, onRefreshLibrary = { scanLibrary() })
                     }
@@ -965,7 +974,7 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
             val icon = when (tab) {
                 Tab.HOME -> Icons.Default.Home
                 Tab.SEARCH -> Icons.Default.Search
-                Tab.LIBRARY -> Icons.Default.Folder
+                Tab.LIBRARY -> Icons.Default.LibraryMusic
                 Tab.SPOTIFY -> Icons.Default.MusicNote
                 Tab.SETTINGS -> Icons.Default.Settings
             }
