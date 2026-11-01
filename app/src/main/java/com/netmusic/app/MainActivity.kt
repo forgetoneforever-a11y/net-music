@@ -267,7 +267,7 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                         PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
                         Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { openFavorites = false; selectedTab = Tab.LIBRARY }, onOpenFavorites = { openFavorites = true; selectedTab = Tab.LIBRARY }, onOpenSpotify = { selectedTab = Tab.SPOTIFY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
-                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
+                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, player, onPlayLocal = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds, openFavorites,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
@@ -406,26 +406,120 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
     }
 }
 
+private data class CatalogTrack(val provider: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String)
+
 @Composable
-private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, onPlay: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
+private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, player: Player?, onPlayLocal: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
     var query by remember { mutableStateOf("") }
-    val results = tracks.withIndex().filter { it.value.title.contains(query, true) || it.value.artist.contains(query, true) || it.value.album.contains(query, true) }
-    Column(Modifier.fillMaxSize().padding(22.dp)) {
-        Text("Поиск", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(16.dp))
-        OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Название, артист или альбом") }, singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Accent, unfocusedBorderColor = Panel))
-        Spacer(Modifier.height(12.dp))
-        LazyColumn {
-            itemsIndexed(results) { _, item ->
-                Row(Modifier.fillMaxWidth().clickable { onPlay(item.index) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AlbumArtwork(item.value, Modifier.size(46.dp))
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(item.value.title, color = Color.White, maxLines = 1)
-                        Text("${item.value.artist} · ${item.value.album}", color = Muted, fontSize = 12.sp, maxLines = 1)
+    var remote by remember { mutableStateOf<List<CatalogTrack>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Ищи музыку сразу в Audius и Jamendo.") }
+    var searched by remember { mutableStateOf(false) }
+
+    LaunchedEffect(query) {
+        val term = query.trim()
+        if (term.length < 2) {
+            remote = emptyList()
+            loading = false
+            searched = false
+            status = "Ищи музыку сразу в Audius и Jamendo."
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(400)
+        loading = true
+        searched = true
+        try {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val encoded = java.net.URLEncoder.encode(term, "UTF-8")
+                val connection = URL("https://net-music.onrender.com/api/catalog/search?q=" + encoded + "&limit=24").openConnection() as HttpURLConnection
+                connection.connectTimeout = 12000
+                connection.readTimeout = 15000
+                try {
+                    val code = connection.responseCode
+                    val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) throw IllegalStateException("HTTP " + code)
+                    val json = JSONObject(body)
+                    val array = json.optJSONArray("tracks") ?: org.json.JSONArray()
+                    val items = buildList {
+                        for (i in 0 until array.length()) {
+                            val item = array.optJSONObject(i) ?: continue
+                            val stream = item.optString("streamUrl")
+                            if (stream.isBlank()) continue
+                            add(CatalogTrack(item.optString("provider"), item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream))
+                        }
                     }
-                    IconButton(onClick = { onToggleFavorite(item.value) }) { Icon(Icons.Default.Favorite, "В избранное", tint = if (item.value.id.toString() in favorites) Color(0xFFE45B68) else Muted) }
+                    val providers = json.optJSONArray("providers")
+                    val message = if (providers == null) "" else (0 until providers.length()).mapNotNull { i ->
+                        providers.optJSONObject(i)?.let { p ->
+                            val name = p.optString("name")
+                            val state = p.optString("status")
+                            if (state == "not_configured") name + ": ожидает настройки"
+                            else if (state == "unavailable") name + ": временно недоступен"
+                            else name + ": " + p.optInt("count") + " треков"
+                        }
+                    }.joinToString(" · ")
+                    items to message
+                } finally { connection.disconnect() }
+            }
+            if (query.trim() == term) {
+                remote = result.first
+                status = result.second.ifBlank { "Каталоги проверены." }
+            }
+        } catch (_: Exception) {
+            remote = emptyList()
+            status = "Не удалось связаться с каталогом. Попробуй ещё раз."
+        } finally { loading = false }
+    }
+
+    val local = tracks.withIndex().filter { query.isNotBlank() && (it.value.title.contains(query, true) || it.value.artist.contains(query, true) || it.value.album.contains(query, true)) }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
+        Text("Поиск", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text("Один поиск · несколько музыкальных каталогов", color = Muted, fontSize = 12.sp)
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Трек, исполнитель или жанр") }, singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Accent, unfocusedBorderColor = Panel, cursorColor = Accent))
+        Spacer(Modifier.height(12.dp))
+        if (query.length < 2) {
+            Text("Например: phonk, ambient, имя исполнителя или название песни.", color = Muted, fontSize = 12.sp)
+        } else {
+            Text("МУЗЫКА ИЗ КАТАЛОГОВ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+            Text(status, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 7.dp))
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent, trackColor = Panel)
+            else if (remote.isEmpty() && searched) Text("Ничего не найдено. Попробуй другой запрос.", color = Muted, fontSize = 13.sp)
+            LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                itemsIndexed(remote) { _, track ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable {
+                        val p = player ?: return@clickable
+                        val metadata = MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build()
+                        p.setMediaItem(MediaItem.Builder().setUri(track.streamUrl).setMediaMetadata(metadata).build())
+                        p.prepare()
+                        p.play()
+                    }.padding(vertical = 8.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (track.artwork.isNotBlank()) AsyncImage(model = track.artwork, contentDescription = "Обложка", modifier = Modifier.size(50.dp).clip(RoundedCornerShape(11.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        else Box(Modifier.size(50.dp).clip(RoundedCornerShape(11.dp)).background(Panel), contentAlignment = Alignment.Center) { Icon(Icons.Default.MusicNote, null, tint = Accent) }
+                        Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                            Text(track.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            Text(track.artist, color = Muted, fontSize = 11.sp, maxLines = 1)
+                            Text(track.provider, color = Accent, fontSize = 9.sp)
+                        }
+                        Text(if (track.duration > 0) formatTime(track.duration) else "", color = Muted, fontSize = 10.sp)
+                        Icon(Icons.Default.PlayArrow, "Слушать", tint = Accent)
+                    }
+                }
+            }
+            if (local.isNotEmpty()) {
+                Text("НА ТВОЁМ УСТРОЙСТВЕ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp, modifier = Modifier.padding(top = 10.dp))
+                LazyColumn(Modifier.weight(1f, fill = false)) {
+                    itemsIndexed(local) { _, item ->
+                        Row(Modifier.fillMaxWidth().clickable { onPlayLocal(item.index) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            AlbumArtwork(item.value, Modifier.size(44.dp))
+                            Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                                Text(item.value.title, color = Color.White, maxLines = 1, fontSize = 13.sp)
+                                Text(item.value.artist, color = Muted, fontSize = 11.sp, maxLines = 1)
+                            }
+                            IconButton(onClick = { onToggleFavorite(item.value) }) { Icon(Icons.Default.Favorite, "В избранное", tint = if (item.value.id.toString() in favorites) Color(0xFFE45B68) else Muted) }
+                        }
+                    }
                 }
             }
         }
