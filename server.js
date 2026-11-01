@@ -205,6 +205,7 @@ function normalizeAudius(track) {
   return {
     id: `audius:${id}`,
     provider: "Audius",
+    playbackType: "full",
     providerId: id,
     title: safeText(track.title, "Без названия"),
     artist: safeText(track.user?.name, "Неизвестный исполнитель"),
@@ -224,7 +225,8 @@ function normalizeAppleTrack(track) {
   if (!id || !preview) return null;
   return {
     id: `apple:${id}`,
-    provider: "Apple Music · preview",
+    provider: "Apple Music",
+    playbackType: "preview",
     providerId: id,
     title: safeText(track.trackName, "Без названия"),
     artist: safeText(track.artistName, "Неизвестный исполнитель"),
@@ -244,7 +246,8 @@ function normalizeDeezerTrack(track) {
   if (!id || !preview) return null;
   return {
     id: `deezer:${id}`,
-    provider: "Deezer · preview",
+    provider: "Deezer",
+    playbackType: "preview",
     providerId: id,
     title: safeText(track.title, "Без названия"),
     artist: safeText(track.artist?.name, "Неизвестный исполнитель"),
@@ -265,6 +268,7 @@ function normalizeJamendo(track) {
   return {
     id: `jamendo:${id}`,
     provider: "Jamendo",
+    playbackType: "full",
     providerId: id,
     title: safeText(track.name, "Без названия"),
     artist: safeText(track.artist_name, "Неизвестный исполнитель"),
@@ -466,7 +470,7 @@ app.get("/api/catalog/search", async (req, res) => {
     if (relevance < 20) continue;
     unique.push({ ...track, relevance });
   }
-  unique.sort((a, b) => b.relevance - a.relevance || a.title.localeCompare(b.title, "ru"));
+  unique.sort((a, b) => Number(b.playbackType === "full") - Number(a.playbackType === "full") || b.relevance - a.relevance || a.title.localeCompare(b.title, "ru"));
   const providers = [...providerMap.values()].map(({ provider, tracks: items, error }) => ({
     name: provider,
     count: new Set(items.map(track => track.id)).size,
