@@ -121,6 +121,9 @@ function authRequired(req, res, next) {
 export function attachCloudRoutes(app) {
   app.get("/api/cloud/status", async (_req, res) => {
     try {
+      if (!JWT_SECRET || JWT_SECRET.length < 32) {
+        return res.status(503).json({ available: false, service: "NET MUSIC Cloud", missing: ["CLOUD_JWT_SECRET"] });
+      }
       await ensureSchema();
       res.json({ available: true, service: "NET MUSIC Cloud", storage: "metadata" });
     } catch (error) {
@@ -130,6 +133,7 @@ export function attachCloudRoutes(app) {
 
   app.post("/api/cloud/register", async (req, res) => {
     try {
+      if (!JWT_SECRET || JWT_SECRET.length < 32) return res.status(503).json({ error: "cloud_not_configured", message: "Cloud authentication is not configured on the server." });
       const email = normalizeEmail(req.body?.email);
       const password = typeof req.body?.password === "string" ? req.body.password : "";
       const displayName = typeof req.body?.displayName === "string" ? req.body.displayName.trim().slice(0, 48) : "";
@@ -154,6 +158,7 @@ export function attachCloudRoutes(app) {
 
   app.post("/api/cloud/login", async (req, res) => {
     try {
+      if (!JWT_SECRET || JWT_SECRET.length < 32) return res.status(503).json({ error: "cloud_not_configured", message: "Cloud authentication is not configured on the server." });
       const email = normalizeEmail(req.body?.email);
       const password = typeof req.body?.password === "string" ? req.body.password : "";
       if (!email || !password) return res.status(400).json({ error: "missing_credentials", message: "Введи почту и пароль." });
