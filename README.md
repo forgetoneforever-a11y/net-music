@@ -41,3 +41,16 @@ Kotlin · Jetpack Compose · Material 3 · AndroidX Media3 · Node.js · Express
 Файл: `app/build/outputs/apk/debug/app-debug.apk`.
 
 NET MUSIC использует официальные API и разрешённые способы загрузки. Приложение не обходит DRM, подписки и ограничения провайдеров.
+
+## Cloudflare Edge API (подготовлено, но ещё не развёрнуто)
+
+Папка `cloudflare/worker` содержит Worker-прокси для API NET MUSIC. Он проксирует API-запросы к Render, добавляет CORS и кэширует только результаты каталожного поиска на короткий срок. Аудиопотоки намеренно не проксируются и не кэшируются: они остаются на стороне музыкальных провайдеров и подчиняются их условиям.
+
+Для публикации:
+1. Установи Wrangler: `npm install -g wrangler`.
+2. Выполни `cd cloudflare/worker && wrangler login`.
+3. Проверь `ORIGIN_API` и `APP_ORIGIN` в `wrangler.toml`.
+4. Выполни `wrangler deploy`.
+5. После привязки собственного домена к Worker замени API base URL в Android-приложении на адрес Worker.
+
+До настройки Cloudflare домена приложение продолжает использовать Render напрямую. Worker не является VPN и не снимает региональные или лицензионные ограничения музыкальных сервисов.
