@@ -1,57 +1,52 @@
-# Net.music
+# NET MUSIC
 
-**One player. All your music.**
+**Твоя музыка. В одном месте.**
 
-Net.music is an Android music hub designed to bring supported streaming services and a personal music library into one clean interface.
+NET MUSIC — нативное Android-приложение на Kotlin и Jetpack Compose. Это не WebView и не HTML-обёртка: интерфейс и аудиоплеер работают средствами Android.
 
-## Current status
+## Что уже реализовано
 
-The app now includes a local audio library and a real Media3 playback engine, alongside the Jetpack Compose interface.
+- Локальная медиатека Android с разрешениями и обновлением списка.
+- Воспроизведение через AndroidX Media3, фоновый PlaybackService и системные media controls.
+- Мини-плеер, полноэкранный плеер, очередь, перемешивание, повтор и скорость.
+- Единый поиск по каталогам Audius и Jamendo через backend.
+- Загрузка композиций Jamendo только когда провайдер явно разрешает скачивание.
+- Отдельная страница «Моя музыка»: все треки, загрузки, избранное, история и пользовательские плейлисты.
+- Аккаунт NET MUSIC Cloud: регистрация по email, вход, защищённая сессия и синхронизация коллекции между устройствами.
+- Spotify OAuth для подключения аккаунта; доступность Spotify Web API зависит от правил и режима приложения Spotify.
 
-- Dark minimal interface inspired by the supplied design references
-- Home, Library, Search and Settings tabs
-- Mini-player and expanded player demo screens
-- Initial service connection placeholders for Spotify, SoundCloud and YouTube Music
-- Reads music from the device through Android MediaStore after runtime permission is granted
-- Plays local audio with AndroidX Media3 ExoPlayer
-- MediaSessionService supports background playback and system media controls
-- Track search, queue navigation, seek bar and mini-player controls
+## Облако
 
-**Current limitation:** Spotify, SoundCloud and YouTube Music are still placeholders; no provider login or cloud catalog is connected yet. The current working playback source is local audio stored on the Android device.
+Backend использует PostgreSQL. В облаке хранятся аккаунт и данные музыкальной библиотеки: избранное, история, плейлисты и список загрузок. Сами аудиофайлы остаются на телефоне, чтобы локальная музыка продолжала работать офлайн. Для хранения и выдачи самих файлов через интернет потребуется отдельное S3-совместимое объектное хранилище.
 
-## Tech stack
+### Переменные окружения Render
 
-- Kotlin
-- Jetpack Compose + Material 3
-- AndroidX Media3 / ExoPlayer
-- Gradle Kotlin DSL
-- Minimum Android 8.0 (API 26)
+Добавь в Environment backend-сервиса:
 
-## Build
+- `DATABASE_URL` — Internal Database URL от Render PostgreSQL.
+- `CLOUD_JWT_SECRET` — случайный секрет минимум 32 символа (лучше 64+).
+- `JAMENDO_CLIENT_ID` — Client ID приложения Jamendo.
+- Уже используемые Spotify-переменные: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI`, `APP_REDIRECT_URI`.
 
-Open this repository in Android Studio (recent stable version), allow Gradle sync, then run the `:app` configuration on an Android device or emulator.
+Не добавляй секреты в GitHub и не отправляй их в чат. После настройки `GET /api/cloud/status` должен вернуть `available: true`. Таблицы облака создаются автоматически при первом запросе.
 
-To build a debug APK:
+## Технологии
+
+- Android: Kotlin, Jetpack Compose, Material 3, AndroidX Media3, Coil.
+- Backend: Node.js, Express 5, PostgreSQL.
+- Cloud auth: scrypt password hashing, signed bearer tokens.
+- Android minimum: API 26 (Android 8.0).
+
+## Сборка Android
+
+Открой проект в Android Studio и запусти:
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-The APK will be generated at `app/build/outputs/apk/debug/app-debug.apk`.
+APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Planned milestones
+## Принципы интеграций
 
-1. Test local library permissions and playback across Android versions
-2. Polish the player, queue, favourites and listening history
-3. Add SoundCloud integration using its currently supported API capabilities
-4. Add Spotify App Remote authorization and playback control where supported
-5. Add unified search and playlist management
-6. Verify CI APK builds and publish installable releases
-
-## Streaming-service notes
-
-Each provider has its own API, playback, authentication and commercial-use restrictions. Net.music will use supported official integrations; it will not bypass DRM, subscriptions or provider access controls.
-
-## License
-
-License to be selected before public distribution.
+NET MUSIC использует официально доступные API и разрешённые ссылки загрузки. Приложение не обходит DRM, подписки или ограничения провайдеров.
