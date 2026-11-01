@@ -282,6 +282,31 @@ function normalizeJamendo(track) {
   };
 }
 
+// Free To Use: official catalog API with direct MP3 stream URLs.
+function normalizeFreeToUse(track) {
+  const id = safeText(track?.id);
+  const stream = safeText(track?.files?.mp3);
+  if (!id || !stream || track?.is_premium === true) return null;
+  const artists = Array.isArray(track.artists)
+    ? track.artists.map(entry => safeText(entry?.[1]?.name)).filter(Boolean)
+    : [];
+  return {
+    id: `freetouse:${id}`,
+    provider: "Free To Use",
+    playbackType: "full",
+    providerId: id,
+    title: safeText(track.title, "Без названия"),
+    artist: artists.join(", ") || "Неизвестный исполнитель",
+    artwork: safeText(track.thumbnails?.md || track.thumbnails?.lg || track.thumbnails?.sm),
+    duration: Math.max(0, Math.floor(Number(track.duration || 0))),
+    streamUrl: stream,
+    downloadUrl: null,
+    downloadAllowed: false,
+    license: "Free To Use License — соблюдай условия платформы",
+    externalUrl: ""
+  };
+}
+
 // Internet Archive: use only files whose item metadata declares a reusable
 // Creative Commons BY/BY-SA/BY-ND or public-domain license. The uploader-supplied
 // license metadata is not independently verified, so the app links back to the item.
@@ -505,6 +530,19 @@ app.get("/api/catalog/search", async (req, res) => {
     })).catch(error => {
       console.warn("[catalog] Internet Archive search failed:", error.message);
       return { provider: "Internet Archive", tracks: [], error: "unavailable" };
+    }));
+
+    const freeToUseUrl = new URL("https://api.freetouse.com/v3/music/tracks/search");
+    freeToUseUrl.searchParams.set("query", searchTerm);
+    freeToUseUrl.searchParams.set("limit", String(Math.min(limit, 20)));
+    freeToUseUrl.searchParams.set("order", "plays");
+    freeToUseUrl.searchParams.set("sort", "desc");
+    jobs.push(fetchJson(freeToUseUrl, 10000).then(data => ({
+      provider: "Free To Use",
+      tracks: (Array.isArray(data?.data) ? data.data : []).map(normalizeFreeToUse).filter(Boolean)
+    })).catch(error => {
+      console.warn("[catalog] Free To Use search failed:", error.message);
+      return { provider: "Free To Use", tracks: [], error: "unavailable" };
     }));
 
     if (JAMENDO_CLIENT_ID) {
