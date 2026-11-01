@@ -1,0 +1,7 @@
+name = "net-music-edge"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+ORIGIN_API = "https://net-music.onrender.com"
+APP_ORIGIN = "*"
