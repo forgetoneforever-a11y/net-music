@@ -185,6 +185,130 @@ app.post("/auth/spotify/exchange", (req, res) => {
   return res.json(entry.tokens);
 });
 
+
+// Unified catalog search: the Android app talks only to NET MUSIC.
+// Provider credentials and API details stay on this server.
+const AUDIUS_BASE = "https://discoveryprovider.audius.co/v1";
+const JAMENDO_CLIENT_ID = process.env.JAMENDO_CLIENT_ID?.trim();
+const AUDIOUS_APP_NAME = "netmusic";
+
+function safeText(value, fallback = "") {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeAudius(track) {
+  const id = safeText(track?.id);
+  if (!id) return null;
+  const artwork = track.artwork || {};
+  return {
+    id: `audius:${id}`,
+    provider: "Audius",
+    providerId: id,
+    title: safeText(track.title, "Без названия"),
+    artist: safeText(track.user?.name, "Неизвестный исполнитель"),
+    artwork: safeText(artwork["480x480"] || artwork["150x150"] || artwork["1000x1000"]),
+    duration: Math.max(0, Number(track.duration || 0)),
+    streamUrl: `${AUDIUS_BASE}/tracks/${encodeURIComponent(id)}/stream?app_name=${AUDIOUS_APP_NAME}`,
+    downloadUrl: null,
+    downloadAllowed: false,
+    license: safeText(track.license, "Условия загрузки не подтверждены"),
+    externalUrl: safeText(track.permalink)
+  };
+}
+
+function normalizeJamendo(track) {
+  const id = safeText(String(track?.id || ""));
+  if (!id) return null;
+  const allowed = track.audiodownload_allowed === true || track.audiodownload_allowed === "true";
+  return {
+    id: `jamendo:${id}`,
+    provider: "Jamendo",
+    providerId: id,
+    title: safeText(track.name, "Без названия"),
+    artist: safeText(track.artist_name, "Неизвестный исполнитель"),
+    artwork: safeText(track.album_image || track.image),
+    duration: Math.max(0, Number(track.duration || 0)),
+    streamUrl: safeText(track.audio),
+    downloadUrl: allowed ? safeText(track.audiodownload) || `https://api.jamendo.com/v3.0/tracks/file/?client_id=${encodeURIComponent(JAMENDO_CLIENT_ID || "")}&id=${encodeURIComponent(id)}&audioformat=mp32` : null,
+    downloadAllowed: allowed,
+    license: safeText(track.license_ccurl, "Creative Commons — проверь условия лицензии"),
+    externalUrl: safeText(track.shareurl)
+  };
+}
+
+async function fetchJson(url, timeoutMs = 9000) {
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}`);
+  return response.json();
+}
+
+app.get("/api/catalog/search", async (req, res) => {
+  const query = safeText(String(req.query.q || "")).slice(0, 120);
+  if (query.length < 2) {
+    return res.status(400).json({ error: "query_too_short", message: "Введите минимум 2 символа." });
+  }
+
+  const requestedLimit = Number.parseInt(String(req.query.limit || "20"), 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(30, Math.max(1, requestedLimit)) : 20;
+  const jobs = [];
+
+  const audiusUrl = new URL(`${AUDIUS_BASE}/tracks/search`);
+  audiusUrl.searchParams.set("query", query);
+  audiusUrl.searchParams.set("limit", String(limit));
+  audiusUrl.searchParams.set("app_name", AUDIOUS_APP_NAME);
+  jobs.push(fetchJson(audiusUrl).then(data => ({
+    provider: "Audius",
+    tracks: (Array.isArray(data?.data) ? data.data : []).map(normalizeAudius).filter(Boolean)
+  })).catch(error => {
+    console.warn("[catalog] Audius search failed:", error.message);
+    return { provider: "Audius", tracks: [], error: "unavailable" };
+  }));
+
+  if (JAMENDO_CLIENT_ID) {
+    const jamendoUrl = new URL("https://api.jamendo.com/v3.0/tracks/");
+    jamendoUrl.searchParams.set("client_id", JAMENDO_CLIENT_ID);
+    jamendoUrl.searchParams.set("format", "json");
+    jamendoUrl.searchParams.set(" 검색", query);
+    jamendoUrl.searchParams.set("search", query);
+    jamendoUrl.searchParams.set("limit", String(limit));
+    jamendoUrl.searchParams.set("audioformat", "mp32");
+    jamendoUrl.searchParams.set("include", "musicinfo");
+    jobs.push(fetchJson(jamendoUrl).then(data => ({
+      provider: "Jamendo",
+      tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeJamendo).filter(track => track && track.streamUrl)
+    })).catch(error => {
+      console.warn("[catalog] Jamendo search failed:", error.message);
+      return { provider: "Jamendo", tracks: [], error: "unavailable" };
+    }));
+  } else {
+    jobs.push(Promise.resolve({ provider: "Jamendo", tracks: [], error: "not_configured" }));
+  }
+
+  const providers = await Promise.all(jobs);
+  const tracks = providers.flatMap(result => result.tracks);
+  const seen = new Set();
+  const unique = tracks.filter(track => {
+    const key = `${track.title.toLowerCase()}|${track.artist.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  res.set("Cache-Control", "public, max-age=30");
+  return res.json({
+    query,
+    tracks: unique,
+    providers: providers.map(({ provider, tracks: items, error }) => ({
+      name: provider,
+      count: items.length,
+      status: error || (items.length ? "ok" : "empty")
+    }))
+  });
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`NET MUSIC API listening on port ${PORT}`);
 });
