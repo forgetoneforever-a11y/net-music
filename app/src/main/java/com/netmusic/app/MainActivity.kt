@@ -598,7 +598,7 @@ private fun SettingsScreen(
 ) {
     var dialog by remember { mutableStateOf("") }
     var showClearConfirmation by remember { mutableStateOf(false) }
-    val speed = player?.playbackParameters?.speed ?: 1f
+    var speed by remember(player) { mutableFloatStateOf(player?.playbackParameters?.speed ?: 1f) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
         Text("Ещё", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
@@ -635,6 +635,7 @@ private fun SettingsScreen(
                     listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { value ->
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
                             player?.setPlaybackSpeed(value)
+                            speed = value
                             dialog = ""
                         }.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("${"%.2f".format(value)}×", color = Color.White)
@@ -721,21 +722,21 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
             Text(artist, color = Muted)
         }
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Slider(value = if (duration > 0) position.coerceAtMost(duration).toFloat() else 0f, onValueChange = { player?.seekTo(it.toLong()) }, valueRange = 0f..(duration.coerceAtLeast(1L).toFloat()), colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent))
+            Slider(value = if (duration > 0) position.coerceAtMost(duration).toFloat() else 0f, onValueChange = { player?.seekTo(it.toLong()) }, enabled = duration > 0L, valueRange = 0f..(duration.coerceAtLeast(1L).toFloat()), colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatTime(position), color = Muted, fontSize = 12.sp)
                 Text(formatTime(duration), color = Muted, fontSize = 12.sp)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) {
+                IconButton(onClick = { player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }, enabled = (player?.mediaItemCount ?: 0) > 0) {
                     Icon(Icons.Default.Shuffle, "Перемешать", tint = if (player?.shuffleModeEnabled == true) Accent else Muted)
                 }
-                IconButton(onClick = { player?.seekToPreviousMediaItem() }) { Icon(Icons.Default.SkipPrevious, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
+                IconButton(onClick = { player?.seekToPreviousMediaItem() }, enabled = (player?.mediaItemCount ?: 0) > 0) { Icon(Icons.Default.SkipPrevious, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
                 Box(Modifier.size(66.dp).clip(CircleShape).background(Accent).clickable { if (player?.isPlaying == true) player.pause() else player?.play() }, contentAlignment = Alignment.Center) {
                     Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(36.dp))
                 }
-                IconButton(onClick = { player?.seekToNextMediaItem() }) { Icon(Icons.Default.SkipNext, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
-                IconButton(onClick = { player?.repeatMode = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ONE }) {
+                IconButton(onClick = { player?.seekToNextMediaItem() }, enabled = (player?.mediaItemCount ?: 0) > 0) { Icon(Icons.Default.SkipNext, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
+                IconButton(onClick = { player?.repeatMode = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ONE }, enabled = (player?.mediaItemCount ?: 0) > 0) {
                     Icon(Icons.Default.RepeatOne, "Повтор трека", tint = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Accent else Muted)
                 }
             }
@@ -784,7 +785,7 @@ private fun MiniPlayer(title: String, artist: String, isPlaying: Boolean, onTogg
             Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
             Text(artist, color = Muted, fontSize = 10.sp, maxLines = 1)
         }
-        IconButton(onClick = onToggle) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Воспроизведение", tint = Color.White) }
+        IconButton(onClick = onToggle, enabled = title != "Выбери свой звук") { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Воспроизведение", tint = if (title != "Выбери свой звук") Color.White else Muted) }
     }
 }
 
