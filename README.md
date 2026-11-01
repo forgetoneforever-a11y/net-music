@@ -2,51 +2,42 @@
 
 **Твоя музыка. В одном месте.**
 
-NET MUSIC — нативное Android-приложение на Kotlin и Jetpack Compose. Это не WebView и не HTML-обёртка: интерфейс и аудиоплеер работают средствами Android.
+NET MUSIC — нативное Android-приложение на Kotlin и Jetpack Compose. Это не WebView и не HTML-обёртка.
 
-## Что уже реализовано
+## Возможности
 
-- Локальная медиатека Android с разрешениями и обновлением списка.
-- Воспроизведение через AndroidX Media3, фоновый PlaybackService и системные media controls.
-- Мини-плеер, полноэкранный плеер, очередь, перемешивание, повтор и скорость.
-- Единый поиск по каталогам Audius и Jamendo через backend.
-- Загрузка композиций Jamendo только когда провайдер явно разрешает скачивание.
-- Отдельная страница «Моя музыка»: все треки, загрузки, избранное, история и пользовательские плейлисты.
-- Аккаунт NET MUSIC Cloud: регистрация по email, вход, защищённая сессия и синхронизация коллекции между устройствами.
-- Spotify OAuth для подключения аккаунта; доступность Spotify Web API зависит от правил и режима приложения Spotify.
+- Локальная медиатека Android и воспроизведение через AndroidX Media3.
+- Фоновый плеер, системные media controls, мини-плеер и полноэкранный плеер.
+- Единый поиск по Audius и Jamendo через backend.
+- Загрузка Jamendo-треков только при наличии разрешения провайдера.
+- Страница «Моя музыка»: все треки, загрузки, избранное, история и плейлисты.
+- NET MUSIC Cloud: регистрация и вход по email, PostgreSQL-хранилище метаданных и синхронизация музыкальной коллекции.
 
-## Облако
+## Облачное хранилище
 
-Backend использует PostgreSQL. В облаке хранятся аккаунт и данные музыкальной библиотеки: избранное, история, плейлисты и список загрузок. Сами аудиофайлы остаются на телефоне, чтобы локальная музыка продолжала работать офлайн. Для хранения и выдачи самих файлов через интернет потребуется отдельное S3-совместимое объектное хранилище.
+Сейчас облако хранит аккаунт и метаданные музыкальной библиотеки: избранное, историю, плейлисты и список загрузок. Аудиофайлы остаются на устройстве для офлайн-воспроизведения. Для загрузки личных аудиофайлов в облако и выдачи их на других устройствах потребуется отдельное S3-совместимое объектное хранилище.
 
-### Переменные окружения Render
+### Render Environment
 
-Добавь в Environment backend-сервиса:
-
-- `DATABASE_URL` — Internal Database URL от Render PostgreSQL.
-- `CLOUD_JWT_SECRET` — случайный секрет минимум 32 символа (лучше 64+).
+- `DATABASE_URL` — Internal Database URL PostgreSQL в Render.
+- `CLOUD_JWT_SECRET` — случайный секрет не короче 32 символов (рекомендуется 64+).
 - `JAMENDO_CLIENT_ID` — Client ID приложения Jamendo.
-- Уже используемые Spotify-переменные: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI`, `APP_REDIRECT_URI`.
+- Spotify: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI`, `APP_REDIRECT_URI`.
 
-Не добавляй секреты в GitHub и не отправляй их в чат. После настройки `GET /api/cloud/status` должен вернуть `available: true`. Таблицы облака создаются автоматически при первом запросе.
+Секреты не добавляй в GitHub и не отправляй в чат. Проверка `GET /api/cloud/status` должна вернуть `available: true`. Таблицы создаются автоматически при первом обращении к облачному API.
 
-## Технологии
+## Стек
 
-- Android: Kotlin, Jetpack Compose, Material 3, AndroidX Media3, Coil.
-- Backend: Node.js, Express 5, PostgreSQL.
-- Cloud auth: scrypt password hashing, signed bearer tokens.
-- Android minimum: API 26 (Android 8.0).
+Kotlin · Jetpack Compose · Material 3 · AndroidX Media3 · Node.js · Express · PostgreSQL.
 
-## Сборка Android
+Минимальная версия Android: API 26 (Android 8.0).
 
-Открой проект в Android Studio и запусти:
+## Сборка APK
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`.
+Файл: `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Принципы интеграций
-
-NET MUSIC использует официально доступные API и разрешённые ссылки загрузки. Приложение не обходит DRM, подписки или ограничения провайдеров.
+NET MUSIC использует официальные API и разрешённые способы загрузки. Приложение не обходит DRM, подписки и ограничения провайдеров.
