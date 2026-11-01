@@ -45,7 +45,7 @@ function verifyOAuthState(state) {
   if (parts.length !== 3) return false;
 
   const [timestampText, nonce, suppliedSignature] = parts;
-  if (!/^\\d+$/.test(timestampText) || !nonce || !suppliedSignature) return false;
+  if (!/^\d+$/.test(timestampText) || !nonce || !suppliedSignature) return false;
 
   const timestamp = Number(timestampText);
   const age = Date.now() - timestamp;
