@@ -461,7 +461,7 @@ private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
             var connection: HttpURLConnection? = null
             try {
                 val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-                connection = (URL("https://api.spotify.com/v1/search?q=$encoded&type=track&limit=20").openConnection() as HttpURLConnection).apply {
+                connection = (URL("https://api.spotify.com/v1/search?q=$encoded&type=track&limit=10").openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 15000
                     readTimeout = 15000
@@ -471,7 +471,7 @@ private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
                 val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                     ?.bufferedReader()?.use { it.readText() }.orEmpty()
                 if (code == 401) throw IllegalStateException("Сессия Spotify истекла. Подключи аккаунт заново.")
-                if (code == 403) throw IllegalStateException("Spotify не разрешил поиск для этого аккаунта.")
+                if (code == 403) throw IllegalStateException("Spotify отклонил запрос (403). Добавь этот аккаунт в Spotify Developer Dashboard → Users and Access и проверь, что у владельца приложения активен Premium.")
                 if (code !in 200..299) throw IllegalStateException("Spotify вернул ошибку HTTP $code.")
                 val items = JSONObject(body).optJSONObject("tracks")?.optJSONArray("items")
                 val found = mutableListOf<SpotifyTrack>()
