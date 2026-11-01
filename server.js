@@ -463,29 +463,8 @@ app.get("/api/catalog/search", async (req, res) => {
   const alternate = transliterateQuery(query);
   const variants = [query, alternate].filter((value, index, all) => value && all.findIndex(candidate => normalizeSearchText(candidate) === normalizeSearchText(value)) === index).slice(0, 2);
   const jobs = [];
-  const discoveryJobs = [];
 
   for (const searchTerm of variants) {
-    for (const kind of ["artist", "album"]) {
-      const discoveryUrl = new URL(`https://api.deezer.com/search/${kind}`);
-      discoveryUrl.searchParams.set("q", searchTerm);
-      discoveryUrl.searchParams.set("limit", String(Math.min(limit, 12)));
-      discoveryJobs.push(fetchJson(discoveryUrl).then(data => ({
-        kind,
-        items: (Array.isArray(data?.data) ? data.data : []).map(item => ({
-          id: `deezer:${kind}:${item.id}`,
-          provider: "Deezer",
-          type: kind,
-          name: safeText(item.name || item.title),
-          artwork: safeText(item.picture_xl || item.picture_big || item.cover_xl || item.cover_big || item.picture || item.cover),
-          artist: safeText(item.artist?.name),
-          externalUrl: safeText(item.link || (kind === "artist" ? `https://www.deezer.com/artist/${item.id}` : `https://www.deezer.com/album/${item.id}`))
-        })).filter(item => item.name && item.externalUrl)
-      })).catch(error => {
-        console.warn(`[catalog] Deezer ${kind} search failed:`, error.message);
-        return { kind, items: [] };
-      }));
-    }
     const audiusUrl = new URL(`${AUDIUS_BASE}/tracks/search`);
     audiusUrl.searchParams.set("query", searchTerm);
     audiusUrl.searchParams.set("limit", String(limit));
@@ -496,32 +475,6 @@ app.get("/api/catalog/search", async (req, res) => {
     })).catch(error => {
       console.warn("[catalog] Audius search failed:", error.message);
       return { provider: "Audius", tracks: [], error: "unavailable" };
-    }));
-
-    for (const storefront of ["RU", "DE", "US"]) {
-      const appleUrl = new URL("https://itunes.apple.com/search");
-      appleUrl.searchParams.set("term", searchTerm);
-      appleUrl.searchParams.set("entity", "song");
-      appleUrl.searchParams.set("limit", String(limit));
-      appleUrl.searchParams.set("country", storefront);
-      jobs.push(fetchJson(appleUrl).then(data => ({
-        provider: `Apple Music (${storefront})`,
-        tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeAppleTrack).filter(Boolean)
-      })).catch(error => {
-        console.warn(`[catalog] Apple ${storefront} search failed:`, error.message);
-        return { provider: `Apple Music (${storefront})`, tracks: [], error: "unavailable" };
-      }));
-    }
-
-    const deezerUrl = new URL("https://api.deezer.com/search");
-    deezerUrl.searchParams.set("q", searchTerm);
-    deezerUrl.searchParams.set("limit", String(limit));
-    jobs.push(fetchJson(deezerUrl).then(data => ({
-      provider: "Deezer",
-      tracks: (Array.isArray(data?.data) ? data.data : []).map(normalizeDeezerTrack).filter(Boolean)
-    })).catch(error => {
-      console.warn("[catalog] Deezer search failed:", error.message);
-      return { provider: "Deezer", tracks: [], error: "unavailable" };
     }));
 
     jobs.push(searchInternetArchive(searchTerm, limit).then(tracks => ({
@@ -565,12 +518,9 @@ app.get("/api/catalog/search", async (req, res) => {
 
   if (!JAMENDO_CLIENT_ID) jobs.push(Promise.resolve({ provider: "Jamendo", tracks: [], error: "not_configured" }));
 
-  const [results, discoveryResults] = await Promise.all([
-    Promise.all(jobs),
-    Promise.all(discoveryJobs)
-  ]);
-  const artists = discoveryResults.filter(result => result.kind === "artist").flatMap(result => result.items);
-  const albums = discoveryResults.filter(result => result.kind === "album").flatMap(result => result.items);
+  const results = await Promise.all(jobs);
+  const artists = [];
+  const albums = [];
   const dedupeEntities = items => {
     const seen = new Set();
     return items.filter(item => {
