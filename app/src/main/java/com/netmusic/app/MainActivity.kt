@@ -3,6 +3,12 @@ package com.netmusic.app
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.app.DownloadManager
+import android.os.Environment
+import android.widget.Toast
 import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -213,6 +219,12 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                     }
                 }
             } catch (_: SecurityException) { }
+            val downloadFolder = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+            downloadFolder?.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("mp3", "m4a", "ogg", "flac", "wav") }?.forEach { file ->
+                val title = file.nameWithoutExtension.replace(Regex("[_]+"), " ").trim().ifBlank { "Загруженный трек" }
+                val stableId = -kotlin.math.abs(file.absolutePath.hashCode().toLong()).coerceAtLeast(1L)
+                found += AudioTrack(stableId, title, "Загружено в NET MUSIC", "", 0L, Uri.fromFile(file), 0L)
+            }
             Handler(Looper.getMainLooper()).post { tracks = found; loading = false }
         }
     }
