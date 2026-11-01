@@ -364,18 +364,20 @@ app.get("/api/catalog/search", async (req, res) => {
       return { provider: "Audius", tracks: [], error: "unavailable" };
     }));
 
-    const appleUrl = new URL("https://itunes.apple.com/search");
-    appleUrl.searchParams.set("term", searchTerm);
-    appleUrl.searchParams.set("entity", "song");
-    appleUrl.searchParams.set("limit", String(limit));
-    appleUrl.searchParams.set("country", "US");
-    jobs.push(fetchJson(appleUrl).then(data => ({
-      provider: "Apple Music",
-      tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeAppleTrack).filter(Boolean)
-    })).catch(error => {
-      console.warn("[catalog] Apple search failed:", error.message);
-      return { provider: "Apple Music", tracks: [], error: "unavailable" };
-    }));
+    for (const storefront of ["RU", "DE", "US"]) {
+      const appleUrl = new URL("https://itunes.apple.com/search");
+      appleUrl.searchParams.set("term", searchTerm);
+      appleUrl.searchParams.set("entity", "song");
+      appleUrl.searchParams.set("limit", String(limit));
+      appleUrl.searchParams.set("country", storefront);
+      jobs.push(fetchJson(appleUrl).then(data => ({
+        provider: `Apple Music (${storefront})`,
+        tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeAppleTrack).filter(Boolean)
+      })).catch(error => {
+        console.warn(`[catalog] Apple ${storefront} search failed:`, error.message);
+        return { provider: `Apple Music (${storefront})`, tracks: [], error: "unavailable" };
+      }));
+    }
 
     const deezerUrl = new URL("https://api.deezer.com/search");
     deezerUrl.searchParams.set("q", searchTerm);
