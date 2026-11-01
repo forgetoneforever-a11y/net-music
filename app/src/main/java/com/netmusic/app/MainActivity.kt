@@ -456,6 +456,7 @@ private fun normalizeTrackSearch(value: String): String =
         .trim()
         .replace(Regex("\\s+"), " ")
 
+@Composable
 private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, player: Player?, onPlayLocal: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit, onDownloadsChanged: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("net_music_preferences", Context.MODE_PRIVATE) }
