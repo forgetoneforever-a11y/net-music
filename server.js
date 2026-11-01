@@ -1,4 +1,5 @@
 import express from "express";
+import { attachCloudRoutes } from "./cloud.js";
 import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 
 const app = express();
@@ -12,7 +13,8 @@ const APP_REDIRECT_URI =
   process.env.APP_REDIRECT_URI?.trim() || "netmusic://spotify/callback";
 
 app.disable("x-powered-by");
-app.use(express.json({ limit: "16kb" }));
+app.use(express.json({ limit: "1mb" }));
+attachCloudRoutes(app);
 
 const loginTickets = new Map();
 const STATE_TTL_MS = 10 * 60 * 1000;
