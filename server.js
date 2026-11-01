@@ -247,6 +247,58 @@ async function fetchJson(url, timeoutMs = 9000) {
   return response.json();
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ru")
+    .replace(/ё/g, "е")
+    .replace(/[’'"`]/g, "")
+    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\\s+/g, " ");
+}
+
+const RU_TO_LAT = {
+  а:"a", б:"b", в:"v", г:"g", д:"d", е:"e", ж:"zh", з:"z", и:"i",
+  й:"y", к:"k", л:"l", м:"m", н:"n", о:"o", п:"p", р:"r", с:"s",
+  т:"t", у:"u", ф:"f", х:"kh", ц:"ts", ч:"ch", ш:"sh", щ:"shch",
+  ы:"y", э:"e", ю:"yu", я:"ya", ь:"", ъ:""
+};
+const LAT_TO_RU = [
+  [/shch/g,"щ"],[/sch/g,"щ"],[/yo/g,"ё"],[/zh/g,"ж"],[/kh/g,"х"],
+  [/ts/g,"ц"],[/ch/g,"ч"],[/sh/g,"ш"],[/yu/g,"ю"],[/ya/g,"я"],
+  [/ye/g,"е"],[/a/g,"а"],[/b/g,"б"],[/v/g,"в"],[/g/g,"г"],[/d/g,"д"],
+  [/e/g,"е"],[/z/g,"з"],[/i/g,"и"],[/y/g,"й"],[/k/g,"к"],[/l/g,"л"],
+  [/m/g,"м"],[/n/g,"н"],[/o/g,"о"],[/p/g,"п"],[/r/g,"р"],[/s/g,"с"],
+  [/t/g,"т"],[/u/g,"у"],[/f/g,"ф"],[/h/g,"х"]
+];
+
+function transliterateQuery(value) {
+  const text = normalizeSearchText(value);
+  if (!text) return "";
+  if (/[а-я]/i.test(text)) {
+    return [...text].map(char => RU_TO_LAT[char] ?? char).join("");
+  }
+  let result = text;
+  for (const [pattern, replacement] of LAT_TO_RU) result = result.replace(pattern, replacement);
+  return result;
+}
+
+function searchScore(query, track) {
+  const q = normalizeSearchText(query);
+  const title = normalizeSearchText(track.title);
+  const artist = normalizeSearchText(track.artist);
+  const combined = title + " " + artist;
+  if (!q) return 0;
+  if (title === q) return 100;
+  if (artist === q) return 92;
+  if (title.startsWith(q)) return 84;
+  if (combined.includes(q)) return 74;
+  const tokens = q.split(" ");
+  const matched = tokens.filter(token => combined.includes(token)).length;
+  return Math.round((matched / tokens.length) * 60);
+}
+
 app.get("/api/catalog/search", async (req, res) => {
   const query = safeText(String(req.query.q || "")).slice(0, 120);
   if (query.length < 2) {
@@ -255,58 +307,73 @@ app.get("/api/catalog/search", async (req, res) => {
 
   const requestedLimit = Number.parseInt(String(req.query.limit || "20"), 10);
   const limit = Number.isFinite(requestedLimit) ? Math.min(30, Math.max(1, requestedLimit)) : 20;
+  const alternate = transliterateQuery(query);
+  const variants = [...new Set([query, alternate].filter(value => value && normalizeSearchText(value) !== normalizeSearchText(query) || value === query))].slice(0, 2);
   const jobs = [];
 
-  const audiusUrl = new URL(`${AUDIUS_BASE}/tracks/search`);
-  audiusUrl.searchParams.set("query", query);
-  audiusUrl.searchParams.set("limit", String(limit));
-  audiusUrl.searchParams.set("app_name", AUDIOUS_APP_NAME);
-  jobs.push(fetchJson(audiusUrl).then(data => ({
-    provider: "Audius",
-    tracks: (Array.isArray(data?.data) ? data.data : []).map(normalizeAudius).filter(Boolean)
-  })).catch(error => {
-    console.warn("[catalog] Audius search failed:", error.message);
-    return { provider: "Audius", tracks: [], error: "unavailable" };
-  }));
-
-  if (JAMENDO_CLIENT_ID) {
-    const jamendoUrl = new URL("https://api.jamendo.com/v3.0/tracks/");
-    jamendoUrl.searchParams.set("client_id", JAMENDO_CLIENT_ID);
-    jamendoUrl.searchParams.set("format", "json");
-    jamendoUrl.searchParams.set("search", query);
-    jamendoUrl.searchParams.set("limit", String(limit));
-    jamendoUrl.searchParams.set("audioformat", "mp32");
-    jamendoUrl.searchParams.set("include", "musicinfo");
-    jobs.push(fetchJson(jamendoUrl).then(data => ({
-      provider: "Jamendo",
-      tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeJamendo).filter(track => track && track.streamUrl)
+  for (const searchTerm of variants) {
+    const audiusUrl = new URL(`${AUDIUS_BASE}/tracks/search`);
+    audiusUrl.searchParams.set("query", searchTerm);
+    audiusUrl.searchParams.set("limit", String(limit));
+    audiusUrl.searchParams.set("app_name", AUDIOUS_APP_NAME);
+    jobs.push(fetchJson(audiusUrl).then(data => ({
+      provider: "Audius",
+      tracks: (Array.isArray(data?.data) ? data.data : []).map(normalizeAudius).filter(Boolean)
     })).catch(error => {
-      console.warn("[catalog] Jamendo search failed:", error.message);
-      return { provider: "Jamendo", tracks: [], error: "unavailable" };
+      console.warn("[catalog] Audius search failed:", error.message);
+      return { provider: "Audius", tracks: [], error: "unavailable" };
     }));
-  } else {
-    jobs.push(Promise.resolve({ provider: "Jamendo", tracks: [], error: "not_configured" }));
+
+    if (JAMENDO_CLIENT_ID) {
+      const jamendoUrl = new URL("https://api.jamendo.com/v3.0/tracks/");
+      jamendoUrl.searchParams.set("client_id", JAMENDO_CLIENT_ID);
+      jamendoUrl.searchParams.set("format", "json");
+      jamendoUrl.searchParams.set("search", searchTerm);
+      jamendoUrl.searchParams.set("limit", String(limit));
+      jamendoUrl.searchParams.set("audioformat", "mp32");
+      jamendoUrl.searchParams.set("include", "musicinfo");
+      jobs.push(fetchJson(jamendoUrl).then(data => ({
+        provider: "Jamendo",
+        tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeJamendo).filter(track => track && track.streamUrl)
+      })).catch(error => {
+        console.warn("[catalog] Jamendo search failed:", error.message);
+        return { provider: "Jamendo", tracks: [], error: "unavailable" };
+      }));
+    }
   }
 
-  const providers = await Promise.all(jobs);
-  const tracks = providers.flatMap(result => result.tracks);
-  const seen = new Set();
-  const unique = tracks.filter(track => {
-    const key = `${track.title.toLowerCase()}|${track.artist.toLowerCase()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  if (!JAMENDO_CLIENT_ID) jobs.push(Promise.resolve({ provider: "Jamendo", tracks: [], error: "not_configured" }));
 
-  res.set("Cache-Control", "public, max-age=30");
+  const results = await Promise.all(jobs);
+  const providerMap = new Map();
+  for (const result of results) {
+    const current = providerMap.get(result.provider) || { provider: result.provider, tracks: [], error: null };
+    current.tracks.push(...result.tracks);
+    if (result.error && !current.tracks.length) current.error = result.error;
+    providerMap.set(result.provider, current);
+  }
+
+  const seen = new Set();
+  const unique = [];
+  for (const track of results.flatMap(result => result.tracks)) {
+    const key = `${normalizeSearchText(track.title)}|${normalizeSearchText(track.artist)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ ...track, relevance: Math.max(...variants.map(term => searchScore(term, track))) });
+  }
+  unique.sort((a, b) => b.relevance - a.relevance || a.title.localeCompare(b.title, "ru"));
+  const providers = [...providerMap.values()].map(({ provider, tracks: items, error }) => ({
+    name: provider,
+    count: new Set(items.map(track => track.id)).size,
+    status: error || (items.length ? "ok" : "empty")
+  }));
+
+  res.set("Cache-Control", "public, max-age=20, stale-while-revalidate=40");
   return res.json({
     query,
-    tracks: unique,
-    providers: providers.map(({ provider, tracks: items, error }) => ({
-      name: provider,
-      count: items.length,
-      status: error || (items.length ? "ok" : "empty")
-    }))
+    search: { normalized: normalizeSearchText(query), alternate: alternate !== query ? alternate : null, variants },
+    tracks: unique.slice(0, limit * 2),
+    providers
   });
 });
 
