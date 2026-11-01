@@ -448,7 +448,6 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
 
 private data class CatalogTrack(val id: String, val provider: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String, val downloadUrl: String?, val downloadAllowed: Boolean, val license: String)
 
-@Composable
 private fun normalizeTrackSearch(value: String): String =
     java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
         .lowercase(java.util.Locale.ROOT)
