@@ -1,5 +1,5 @@
 import express from "express";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -14,7 +14,6 @@ const APP_REDIRECT_URI =
 app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb" }));
 
-const pendingStates = new Map();
 const loginTickets = new Map();
 const STATE_TTL_MS = 10 * 60 * 1000;
 const TICKET_TTL_MS = 60 * 1000;
@@ -28,6 +27,41 @@ function prune(map) {
   for (const [key, value] of map) {
     if (value.expiresAt <= now) map.delete(key);
   }
+}
+
+function createOAuthState() {
+  const timestamp = Date.now().toString();
+  const nonce = randomToken(24);
+  const payload = `${timestamp}.${nonce}`;
+  const signature = createHmac("sha256", SPOTIFY_CLIENT_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function verifyOAuthState(state) {
+  if (typeof state !== "string") return false;
+  const parts = state.split(".");
+  if (parts.length !== 3) return false;
+
+  const [timestampText, nonce, suppliedSignature] = parts;
+  if (!/^\\d+$/.test(timestampText) || !nonce || !suppliedSignature) return false;
+
+  const timestamp = Number(timestampText);
+  const age = Date.now() - timestamp;
+  if (!Number.isSafeInteger(timestamp) || age < 0 || age > STATE_TTL_MS) return false;
+
+  const payload = `${timestampText}.${nonce}`;
+  const expected = createHmac("sha256", SPOTIFY_CLIENT_SECRET)
+    .update(payload)
+    .digest();
+  let supplied;
+  try {
+    supplied = Buffer.from(suppliedSignature, "base64url");
+  } catch {
+    return false;
+  }
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 function requireSpotifyConfig(res) {
@@ -53,9 +87,7 @@ app.get("/health", (_req, res) => {
 app.get("/auth/spotify", (req, res) => {
   if (!requireSpotifyConfig(res)) return;
 
-  prune(pendingStates);
-  const state = randomToken(24);
-  pendingStates.set(state, { expiresAt: Date.now() + STATE_TTL_MS });
+  const state = createOAuthState();
 
   const params = new URLSearchParams({
     client_id: SPOTIFY_CLIENT_ID,
@@ -81,12 +113,9 @@ app.get("/auth/spotify/callback", async (req, res) => {
     return res.status(400).type("text").send(`Spotify authorization failed: ${String(error)}`);
   }
 
-  prune(pendingStates);
-  const pending = typeof state === "string" ? pendingStates.get(state) : null;
-  if (!pending) {
-    return res.status(400).type("text").send("Invalid or expired OAuth state. Please try again.");
+  if (!verifyOAuthState(state)) {
+    return res.status(400).type("text").send("Invalid or expired OAuth state. Please start Spotify login again.");
   }
-  pendingStates.delete(state);
 
   if (typeof code !== "string") {
     return res.status(400).type("text").send("Spotify did not return an authorization code.");
