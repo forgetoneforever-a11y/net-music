@@ -26,6 +26,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -918,6 +920,7 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
     var seekTarget by remember { mutableFloatStateOf(0f) }
     var showQueue by remember { mutableStateOf(false) }
     var queueRevision by remember { mutableIntStateOf(0) }
+    var volume by remember { mutableFloatStateOf(player?.volume ?: 1f) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -939,6 +942,7 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
             val current = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
             val total = player?.duration?.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
             duration = total
+            volume = player?.volume ?: 1f
             if (!dragging) {
                 position = current
                 seekTarget = current.toFloat()
@@ -962,8 +966,10 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            val coverScale by animateFloatAsState(if (isPlaying) 1f else .96f, animationSpec = tween(450), label = "coverScale")
             Box(
                 Modifier.fillMaxWidth().heightIn(max = 300.dp).aspectRatio(1f)
+                    .graphicsLayer { scaleX = coverScale; scaleY = coverScale }
                     .clip(RoundedCornerShape(28.dp))
                     .background(Brush.linearGradient(listOf(Color(0xFF47343A), Color(0xFF242126), Color(0xFF111111)))),
                 contentAlignment = Alignment.Center
@@ -983,6 +989,7 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
             }
             Text(title, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(artist, color = Muted, maxLines = 1)
+            AudioVisualizer(isPlaying = isPlaying, modifier = Modifier.padding(top = 2.dp))
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1013,7 +1020,7 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
                 IconButton(onClick = { player?.seekToPreviousMediaItem() }, enabled = hasQueue && (player?.hasPreviousMediaItem() == true)) {
                     Icon(Icons.Default.SkipPrevious, "Предыдущий трек", tint = Color.White, modifier = Modifier.size(34.dp))
                 }
-                Box(Modifier.size(66.dp).clip(CircleShape).background(Accent).clickable(enabled = hasQueue) {
+                Box(Modifier.size(66.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFFFE8BE), Accent))).clickable(enabled = hasQueue) {
                     if (player?.isPlaying == true) player.pause() else player?.play()
                 }, contentAlignment = Alignment.Center) {
                     Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Воспроизведение", tint = Color.Black, modifier = Modifier.size(36.dp))
@@ -1031,6 +1038,16 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
                     val repeatIcon = if (player?.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat
                     Icon(repeatIcon, "Режим повтора", tint = if (player?.repeatMode != Player.REPEAT_MODE_OFF) Accent else Muted)
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Default.VolumeDown, null, tint = Muted, modifier = Modifier.size(19.dp))
+                Slider(
+                    value = volume.coerceIn(0f, 1f),
+                    onValueChange = { next -> volume = next; player?.volume = next },
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent)
+                )
+                Icon(Icons.Default.VolumeUp, null, tint = Muted, modifier = Modifier.size(19.dp))
             }
         }
     }
@@ -1073,6 +1090,36 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
             titleContentColor = Color.White,
             textContentColor = Muted
         )
+    }
+}
+
+
+@Composable
+private fun AudioVisualizer(isPlaying: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "audioVisualizer")
+    Row(
+        modifier = modifier.height(30.dp).fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(27) { index ->
+            val wave by transition.animateFloat(
+                initialValue = .18f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 420 + (index % 6) * 95, delayMillis = index * 23),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "bar$index"
+            )
+            Box(
+                Modifier.padding(horizontal = 2.dp)
+                    .width(3.dp)
+                    .height((if (isPlaying) 5f + wave * 21f else 4f).dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isPlaying) Accent.copy(alpha = .55f + wave * .45f) else Muted.copy(alpha = .35f))
+            )
+        }
     }
 }
 
