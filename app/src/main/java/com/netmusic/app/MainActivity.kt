@@ -257,10 +257,11 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
         Column(Modifier.fillMaxSize().padding(WindowInsets.navigationBars.asPaddingValues())) {
             AnimatedContent(
                 targetState = if (showPlayer) "player" else selectedTab.name,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "screen"
             ) { screen ->
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.fillMaxSize()) {
                     if (screen == "player") {
                         PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
