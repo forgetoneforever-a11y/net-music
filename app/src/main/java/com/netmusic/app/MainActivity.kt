@@ -449,6 +449,14 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
 private data class CatalogTrack(val id: String, val provider: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String, val downloadUrl: String?, val downloadAllowed: Boolean, val license: String)
 
 @Composable
+private fun normalizeTrackSearch(value: String): String =
+    java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
+        .lowercase(java.util.Locale.ROOT)
+        .replace('ё', 'е')
+        .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+        .trim()
+        .replace(Regex("\\s+"), " ")
+
 private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, player: Player?, onPlayLocal: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit, onDownloadsChanged: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("net_music_preferences", Context.MODE_PRIVATE) }
@@ -508,15 +516,16 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
             status = "Ищи музыку сразу в Audius и Jamendo."
             return@LaunchedEffect
         }
-        kotlinx.coroutines.delay(400)
+        kotlinx.coroutines.delay(300)
+        if (query.trim() != term) return@LaunchedEffect
         loading = true
         searched = true
         try {
             val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val encoded = java.net.URLEncoder.encode(term, "UTF-8")
                 val connection = URL("https://net-music.onrender.com/api/catalog/search?q=" + encoded + "&limit=24").openConnection() as HttpURLConnection
-                connection.connectTimeout = 12000
-                connection.readTimeout = 15000
+                connection.connectTimeout = 8000
+                connection.readTimeout = 10000
                 try {
                     val code = connection.responseCode
                     val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -548,13 +557,25 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                 remote = result.first
                 status = result.second.ifBlank { "Каталоги проверены." }
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
-            remote = emptyList()
-            status = "Не удалось связаться с каталогом. Попробуй ещё раз."
-        } finally { loading = false }
+            if (query.trim() == term) {
+                remote = emptyList()
+                status = "Не удалось связаться с каталогом. Попробуй ещё раз."
+            }
+        } finally {
+            if (query.trim() == term) loading = false
+        }
     }
 
-    val local = tracks.withIndex().filter { query.isNotBlank() && (it.value.title.contains(query, true) || it.value.artist.contains(query, true) || it.value.album.contains(query, true)) }
+    val normalizedQuery = normalizeTrackSearch(query)
+    val local = remember(tracks, normalizedQuery) {
+        tracks.withIndex().filter { indexed ->
+            normalizedQuery.isNotBlank() && listOf(indexed.value.title, indexed.value.artist, indexed.value.album)
+                .any { normalizeTrackSearch(it).contains(normalizedQuery) }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
         Text("Поиск", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Text("Один поиск · несколько музыкальных каталогов", color = Muted, fontSize = 12.sp)
