@@ -217,7 +217,7 @@ function normalizeAudius(track) {
 }
 
 function normalizeJamendo(track) {
-  const id = safeText(String(track?.id || ""));
+  const id = track?.id == null ? "" : safeText(String(track.id));
   if (!id) return null;
   const allowed = track.audiodownload_allowed === true || track.audiodownload_allowed === "true";
   return {
@@ -271,7 +271,6 @@ app.get("/api/catalog/search", async (req, res) => {
     const jamendoUrl = new URL("https://api.jamendo.com/v3.0/tracks/");
     jamendoUrl.searchParams.set("client_id", JAMENDO_CLIENT_ID);
     jamendoUrl.searchParams.set("format", "json");
-    jamendoUrl.searchParams.set(" 검색", query);
     jamendoUrl.searchParams.set("search", query);
     jamendoUrl.searchParams.set("limit", String(limit));
     jamendoUrl.searchParams.set("audioformat", "mp32");
