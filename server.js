@@ -253,9 +253,9 @@ function normalizeSearchText(value) {
     .toLocaleLowerCase("ru")
     .replace(/ё/g, "е")
     .replace(/[’'"`]/g, "")
-    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
-    .replace(/\\s+/g, " ");
+    .replace(/\s+/g, " ");
 }
 
 const RU_TO_LAT = {
@@ -308,7 +308,7 @@ app.get("/api/catalog/search", async (req, res) => {
   const requestedLimit = Number.parseInt(String(req.query.limit || "20"), 10);
   const limit = Number.isFinite(requestedLimit) ? Math.min(30, Math.max(1, requestedLimit)) : 20;
   const alternate = transliterateQuery(query);
-  const variants = [...new Set([query, alternate].filter(value => value && normalizeSearchText(value) !== normalizeSearchText(query) || value === query))].slice(0, 2);
+  const variants = [query, alternate].filter((value, index, all) => value && all.findIndex(candidate => normalizeSearchText(candidate) === normalizeSearchText(value)) === index).slice(0, 2);
   const jobs = [];
 
   for (const searchTerm of variants) {
