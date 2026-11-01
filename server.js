@@ -218,6 +218,46 @@ function normalizeAudius(track) {
   };
 }
 
+function normalizeAppleTrack(track) {
+  const id = track?.trackId == null ? "" : String(track.trackId);
+  const preview = safeText(track?.previewUrl);
+  if (!id || !preview) return null;
+  return {
+    id: `apple:${id}`,
+    provider: "Apple Music · preview",
+    providerId: id,
+    title: safeText(track.trackName, "Без названия"),
+    artist: safeText(track.artistName, "Неизвестный исполнитель"),
+    artwork: safeText(track.artworkUrl100).replace("100x100", "600x600"),
+    duration: Math.max(0, Math.floor(Number(track.trackTimeMillis || 0) / 1000)),
+    streamUrl: preview,
+    downloadUrl: null,
+    downloadAllowed: false,
+    license: "Официальный 30-секундный preview; полная версия доступна у правообладателя",
+    externalUrl: safeText(track.trackViewUrl)
+  };
+}
+
+function normalizeDeezerTrack(track) {
+  const id = track?.id == null ? "" : String(track.id);
+  const preview = safeText(track?.preview);
+  if (!id || !preview) return null;
+  return {
+    id: `deezer:${id}`,
+    provider: "Deezer · preview",
+    providerId: id,
+    title: safeText(track.title, "Без названия"),
+    artist: safeText(track.artist?.name, "Неизвестный исполнитель"),
+    artwork: safeText(track.album?.cover_xl || track.album?.cover_big || track.album?.cover),
+    duration: Math.max(0, Number(track.duration || 0)),
+    streamUrl: preview,
+    downloadUrl: null,
+    downloadAllowed: false,
+    license: "Официальный preview; полная версия доступна у правообладателя",
+    externalUrl: safeText(track.link)
+  };
+}
+
 function normalizeJamendo(track) {
   const id = track?.id == null ? "" : safeText(String(track.id));
   if (!id) return null;
@@ -322,6 +362,30 @@ app.get("/api/catalog/search", async (req, res) => {
     })).catch(error => {
       console.warn("[catalog] Audius search failed:", error.message);
       return { provider: "Audius", tracks: [], error: "unavailable" };
+    }));
+
+    const appleUrl = new URL("https://itunes.apple.com/search");
+    appleUrl.searchParams.set("term", searchTerm);
+    appleUrl.searchParams.set("entity", "song");
+    appleUrl.searchParams.set("limit", String(limit));
+    appleUrl.searchParams.set("country", "US");
+    jobs.push(fetchJson(appleUrl).then(data => ({
+      provider: "Apple Music",
+      tracks: (Array.isArray(data?.results) ? data.results : []).map(normalizeAppleTrack).filter(Boolean)
+    })).catch(error => {
+      console.warn("[catalog] Apple search failed:", error.message);
+      return { provider: "Apple Music", tracks: [], error: "unavailable" };
+    }));
+
+    const deezerUrl = new URL("https://api.deezer.com/search");
+    deezerUrl.searchParams.set("q", searchTerm);
+    deezerUrl.searchParams.set("limit", String(limit));
+    jobs.push(fetchJson(deezerUrl).then(data => ({
+      provider: "Deezer",
+      tracks: (Array.isArray(data?.data) ? data.data : []).map(normalizeDeezerTrack).filter(Boolean)
+    })).catch(error => {
+      console.warn("[catalog] Deezer search failed:", error.message);
+      return { provider: "Deezer", tracks: [], error: "unavailable" };
     }));
 
     if (JAMENDO_CLIENT_ID) {
