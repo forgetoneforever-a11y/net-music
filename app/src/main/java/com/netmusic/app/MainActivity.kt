@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val title: String) {
-    HOME("Главная"), SEARCH("Поиск"), LIBRARY("Медиатека"), SPOTIFY("Spotify"), SETTINGS("Настройки")
+    HOME("Домой"), SEARCH("Поиск"), LIBRARY("Файлы"), SPOTIFY("Spotify"), SETTINGS("Ещё")
 }
 
 @Composable
@@ -167,6 +167,7 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
     val preferences = remember { context.getSharedPreferences("net_music_preferences", android.content.Context.MODE_PRIVATE) }
     var favoriteIds by remember { mutableStateOf(preferences.getStringSet("favorites", emptySet())?.toSet() ?: emptySet()) }
     var recentIds by remember { mutableStateOf(preferences.getString("recent_tracks", "")?.split(",")?.filter { it.isNotBlank() } ?: emptyList()) }
+    var openFavorites by remember { mutableStateOf(false) }
     fun toggleFavorite(track: AudioTrack) {
         favoriteIds = if (track.id.toString() in favoriteIds) favoriteIds - track.id.toString() else favoriteIds + track.id.toString()
         preferences.edit().putStringSet("favorites", favoriteIds).apply()
@@ -265,20 +266,18 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                     if (screen == "player") {
                         PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
-                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { selectedTab = Tab.LIBRARY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
+                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { openFavorites = false; selectedTab = Tab.LIBRARY }, onOpenFavorites = { openFavorites = true; selectedTab = Tab.LIBRARY }, onOpenSpotify = { selectedTab = Tab.SPOTIFY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
                         Tab.SEARCH -> SearchScreen(tracks, favoriteIds, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
-                        Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
+                        Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds, openFavorites,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
                         Tab.SPOTIFY -> SpotifyScreen(spotifyStatus, onConnectSpotify)
-                        Tab.SETTINGS -> SettingsScreen(spotifyStatus, onConnectSpotify)
+                        Tab.SETTINGS -> SettingsScreen(spotifyStatus, onConnectSpotify, player, tracks.size, recentIds.size, onClearHistory = { recentIds = emptyList(); preferences.edit().remove("recent_tracks").apply() }, onRefreshLibrary = { scanLibrary() })
                     }
                 }
             }
             if (!showPlayer) {
-                if (selectedTab != Tab.SETTINGS) {
-                    MiniPlayer(currentTitle, currentArtist, isPlaying, { player?.let { if (it.isPlaying) it.pause() else it.play() } }, { showPlayer = true })
-                }
+                MiniPlayer(currentTitle, currentArtist, isPlaying, { player?.let { if (it.isPlaying) it.pause() else it.play() } }, { showPlayer = true })
                 BottomBar(selectedTab) { selectedTab = it }
             }
         }
@@ -286,22 +285,23 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
 }
 
 @Composable
-private fun HomeScreen(trackCount: Int, favoriteCount: Int, recentTracks: List<AudioTrack>, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onRefresh: () -> Unit, onPlayRecent: (AudioTrack) -> Unit) {
+private fun HomeScreen(trackCount: Int, favoriteCount: Int, recentTracks: List<AudioTrack>, loading: Boolean, permissionGranted: Boolean, onOpenLibrary: () -> Unit, onOpenFavorites: () -> Unit, onOpenSpotify: () -> Unit, onRefresh: () -> Unit, onPlayRecent: (AudioTrack) -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item {
-            Column(Modifier.padding(top = 28.dp)) {
-                Text("NET.", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-                Text("Моя волна", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold)
+            Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("NET MUSIC", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
+                Text("Твоя музыка.", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Всё любимое — в одном месте", color = Muted, fontSize = 13.sp)
             }
         }
         item {
-            Box(Modifier.fillMaxWidth().height(270.dp).clip(RoundedCornerShape(30.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF51352F), Color(0xFF171717), Color(0xFF080808))))
-                .clickable { onOpenLibrary() }.padding(24.dp), contentAlignment = Alignment.BottomStart) {
+            Box(Modifier.fillMaxWidth().height(218.dp).clip(RoundedCornerShape(28.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF47343A), Color(0xFF242126), Color(0xFF111111))))
+                .clickable { onOpenLibrary() }.padding(22.dp), contentAlignment = Alignment.BottomStart) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("YOUR SOUND. YOUR SPACE.", color = Accent, fontSize = 10.sp, letterSpacing = 2.sp)
-                    Text("Музыка\nбез границ", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp)
-                    Text("Открыть медиатеку  →", color = Color.White.copy(alpha = .75f), fontSize = 14.sp)
+                    Text("YOUR SOUND · YOUR SPACE", color = Accent, fontSize = 10.sp, letterSpacing = 1.8.sp)
+                    Text("Слушай своё.\nБез лишнего.", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, lineHeight = 34.sp)
+                    Text("Открыть медиатеку  →", color = Color.White.copy(alpha = .78f), fontSize = 13.sp)
                 }
             }
         }
@@ -309,7 +309,7 @@ private fun HomeScreen(trackCount: Int, favoriteCount: Int, recentTracks: List<A
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CollectionCard("На устройстве", when { !permissionGranted -> "Нужен доступ к музыке"; loading -> "Сканируем медиатеку…"; else -> "$trackCount треков" }, Modifier.weight(1f), Color(0xFF7D2024), onClick = if (permissionGranted) onRefresh else onOpenLibrary)
-                CollectionCard("Любимые", "$favoriteCount треков", Modifier.weight(1f), Color(0xFF333333), onClick = onOpenLibrary)
+                CollectionCard("Любимые", "$favoriteCount треков", Modifier.weight(1f), Color(0xFF333333), onClick = onOpenFavorites)
             }
         }
         if (recentTracks.isNotEmpty()) {
@@ -325,22 +325,28 @@ private fun HomeScreen(trackCount: Int, favoriteCount: Int, recentTracks: List<A
                 }
             }
         }
-        item { SectionTitle("Подключённые сервисы") }
+        item { SectionTitle("Музыка из каталога") }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ServiceRow("Spotify", "Интеграция будет через официальный API", "●", Color(0xFF1DB954))
-                ServiceRow("SoundCloud", "Подключение в следующем этапе", "◉", Color(0xFFFF6A2B))
-                ServiceRow("YouTube Music", "Изучаем доступные способы интеграции", "▶", Color(0xFFFF4545))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Panel).clickable { onOpenSpotify() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xFF1DB954).copy(alpha = .16f)), contentAlignment = Alignment.Center) {
+                    Text("S", color = Color(0xFF1DB954), fontWeight = FontWeight.Black, fontSize = 22.sp)
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("Spotify", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Поиск треков и переход к прослушиванию", color = Muted, fontSize = 11.sp)
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = Muted)
             }
         }
     }
 }
 
 @Composable
-private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: Boolean, favorites: Set<String>, onRequestPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
+private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: Boolean, favorites: Set<String>, startWithFavorites: Boolean, onRequestPermission: () -> Unit, onRefresh: () -> Unit, onPlay: (Int) -> Unit, onToggleFavorite: (AudioTrack) -> Unit) {
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by remember { mutableStateOf("Название") }
-    var onlyFavorites by remember { mutableStateOf(false) }
+    var onlyFavorites by remember { mutableStateOf(startWithFavorites) }
+    LaunchedEffect(startWithFavorites) { onlyFavorites = startWithFavorites }
     val visibleTracks = remember(tracks, favorites, onlyFavorites, sortMode) {
         val source = if (onlyFavorites) tracks.filter { it.id.toString() in favorites } else tracks
         when (sortMode) {
@@ -353,8 +359,8 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
-                Text("Медиатека", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                Text("${tracks.size} треков на устройстве", color = Muted, fontSize = 13.sp)
+                Text(if (onlyFavorites) "Любимые" else "Медиатека", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                Text(if (onlyFavorites) "${visibleTracks.size} избранных треков" else "${tracks.size} треков на устройстве", color = Muted, fontSize = 13.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { onlyFavorites = !onlyFavorites }) { Icon(Icons.Default.Favorite, "Избранное", tint = if (onlyFavorites) Accent else Muted) }
@@ -379,6 +385,7 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
             }
             loading -> CircularProgressIndicator(color = Accent, modifier = Modifier.align(Alignment.CenterHorizontally))
             tracks.isEmpty() -> Text("Музыка не найдена. Добавь аудиофайлы на устройство и обнови список.", color = Muted)
+            onlyFavorites && visibleTracks.isEmpty() -> Text("Здесь пока пусто. Нажми на сердечко рядом с треком, чтобы добавить его в любимые.", color = Muted)
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(visibleTracks) { _, track ->
                     val originalIndex = tracks.indexOfFirst { it.id == track.id }
@@ -580,29 +587,106 @@ private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
 }
 
 @Composable
-private fun SettingsScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Text("Настройки", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+private fun SettingsScreen(
+    spotifyStatus: String,
+    onConnectSpotify: () -> Unit,
+    player: Player?,
+    trackCount: Int,
+    recentCount: Int,
+    onClearHistory: () -> Unit,
+    onRefreshLibrary: () -> Unit
+) {
+    var dialog by remember { mutableStateOf("") }
+    var showClearConfirmation by remember { mutableStateOf(false) }
+    val speed = player?.playbackParameters?.speed ?: 1f
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
+        Text("Ещё", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+        Text("Управление приложением", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(18.dp))
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Panel).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Spotify", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                Text(spotifyStatus, color = if (spotifyStatus == "Spotify подключён") Color(0xFF1DB954) else Muted, fontSize = 12.sp)
+                Text("Spotify", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(spotifyStatus, color = if (spotifyStatus == "Spotify подключён") Color(0xFF1DB954) else Muted, fontSize = 11.sp)
             }
-            Text("Подключи аккаунт, чтобы NET MUSIC мог получить разрешённый доступ к Spotify.", color = Muted, fontSize = 12.sp)
-            Button(onClick = onConnectSpotify, modifier = Modifier.fillMaxWidth()) {
-                Text(if (spotifyStatus == "Spotify подключён") "Подключить другой аккаунт" else "Подключить Spotify")
-            }
-        }
-        listOf("Качество звука", "Оформление", "Хранилище", "О приложении").forEach {
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(it, color = Color.White, fontSize = 16.sp)
-                Text("›", color = Muted, fontSize = 22.sp)
+            Text("Каталог, поиск и открытие найденных треков в Spotify.", color = Muted, fontSize = 12.sp)
+            Button(onClick = onConnectSpotify, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954), contentColor = Color.Black)) {
+                Text(if (spotifyStatus == "Spotify подключён") "Переподключить аккаунт" else "Подключить Spotify")
             }
         }
-        Text("Net.music · версия 0.2.0", color = Muted, fontSize = 12.sp)
+        Spacer(Modifier.height(4.dp))
+        Text("ПРОИГРЫВАТЕЛЬ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        SettingsAction(Icons.Default.Speed, "Скорость воспроизведения", "${"%.2f".format(speed)}×") { dialog = "speed" }
+        SettingsAction(Icons.Default.Refresh, "Обновить медиатеку", "$trackCount треков") { onRefreshLibrary() }
+        Spacer(Modifier.height(4.dp))
+        Text("ПРИЛОЖЕНИЕ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        SettingsAction(Icons.Default.History, "История прослушивания", "$recentCount недавно включённых") { dialog = "history" }
+        SettingsAction(Icons.Default.Info, "О приложении", "NET MUSIC · версия 0.2.0") { dialog = "about" }
+        Spacer(Modifier.height(10.dp))
+        Text("NET MUSIC · локальная музыка + каталог Spotify", color = Muted, fontSize = 11.sp)
+    }
+
+    if (dialog == "speed") {
+        AlertDialog(
+            onDismissRequest = { dialog = "" },
+            title = { Text("Скорость воспроизведения") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { value ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                            player?.setPlaybackSpeed(value)
+                            dialog = ""
+                        }.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("${"%.2f".format(value)}×", color = Color.White)
+                            if (kotlin.math.abs(speed - value) < 0.01f) Icon(Icons.Default.Check, null, tint = Accent)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = "" }) { Text("Закрыть") } },
+            containerColor = Panel, titleContentColor = Color.White, textContentColor = Muted
+        )
+    }
+    if (dialog == "history") {
+        AlertDialog(
+            onDismissRequest = { dialog = "" },
+            title = { Text("История прослушивания") },
+            text = { Text("Сохранено недавних треков: $recentCount. Очистка удалит только историю, избранное и аудиофайлы останутся на месте.") },
+            confirmButton = { TextButton(onClick = { showClearConfirmation = true; dialog = "" }) { Text("Очистить историю") } },
+            dismissButton = { TextButton(onClick = { dialog = "" }) { Text("Назад") } },
+            containerColor = Panel, titleContentColor = Color.White, textContentColor = Muted
+        )
+    }
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("Очистить историю?") },
+            text = { Text("Это действие нельзя отменить. Избранные треки не будут удалены.") },
+            confirmButton = { TextButton(onClick = { onClearHistory(); showClearConfirmation = false }) { Text("Очистить") } },
+            dismissButton = { TextButton(onClick = { showClearConfirmation = false }) { Text("Отмена") } },
+            containerColor = Panel, titleContentColor = Color.White, textContentColor = Muted
+        )
+    }
+    if (dialog == "about") {
+        AlertDialog(
+            onDismissRequest = { dialog = "" },
+            title = { Text("NET MUSIC") },
+            text = { Text("Музыкальный плеер для локальных аудиофайлов с поиском каталога Spotify. Spotify используется для поиска и открытия треков в официальном приложении или веб-плеере; воспроизведение локальных файлов работает независимо.") },
+            confirmButton = { TextButton(onClick = { dialog = "" }) { Text("Понятно") } },
+            containerColor = Panel, titleContentColor = Color.White, textContentColor = Muted
+        )
+    }
+}
+
+@Composable
+private fun SettingsAction(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).clickable { onClick() }.padding(horizontal = 16.dp, vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = Accent, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f).padding(start = 13.dp)) {
+            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Muted, fontSize = 11.sp)
+        }
+        Icon(Icons.Default.ChevronRight, null, tint = Muted)
     }
 }
 
@@ -626,9 +710,9 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
             if (track != null) {
-                AlbumArtwork(track, Modifier.fillMaxWidth().height(300.dp))
+                AlbumArtwork(track, Modifier.fillMaxWidth().heightIn(max = 260.dp).aspectRatio(1f))
             } else {
-                Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(28.dp))
+                Box(Modifier.fillMaxWidth().heightIn(max = 260.dp).aspectRatio(1f).clip(RoundedCornerShape(28.dp))
                     .background(Brush.linearGradient(listOf(Color(0xFF6A343B), Color(0xFF24202A), Color(0xFF101010)))), contentAlignment = Alignment.Center) {
                     Text("NET", color = Color.White.copy(alpha = .85f), fontSize = 64.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
                 }
@@ -694,19 +778,19 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
 
 @Composable
 private fun MiniPlayer(title: String, artist: String, isPlaying: Boolean, onToggle: () -> Unit, onOpen: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF202020)).clickable { onOpen() }.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF8D3544), Color(0xFF302536)))), contentAlignment = Alignment.Center) { Text("N", color = Color.White, fontWeight = FontWeight.Bold) }
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
-            Text(artist, color = Muted, fontSize = 11.sp, maxLines = 1)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF1C1C1C)).padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(Color(0xFF70434B), Color(0xFF29252D)))).clickable { onOpen() }, contentAlignment = Alignment.Center) { Text("N", color = Color.White, fontWeight = FontWeight.Bold) }
+        Column(Modifier.weight(1f).padding(start = 11.dp).clickable { onOpen() }) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+            Text(artist, color = Muted, fontSize = 10.sp, maxLines = 1)
         }
-        Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.clickable { onToggle() }.size(30.dp))
+        IconButton(onClick = onToggle) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Воспроизведение", tint = Color.White) }
     }
 }
 
 @Composable
 private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
-    Row(Modifier.fillMaxWidth().background(Color(0xFF101010)).padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().background(Color(0xFF101010)).padding(horizontal = 5.dp, vertical = 7.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         Tab.entries.forEach { tab ->
             val icon = when (tab) {
                 Tab.HOME -> Icons.Default.Home
@@ -715,9 +799,11 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                 Tab.SPOTIFY -> Icons.Default.MusicNote
                 Tab.SETTINGS -> Icons.Default.Settings
             }
-            Column(Modifier.clip(RoundedCornerShape(14.dp)).clickable { onSelect(tab) }.padding(horizontal = 14.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(icon, contentDescription = tab.title, tint = if (selected == tab) Color.White else Muted, modifier = Modifier.size(23.dp))
-                Text(tab.title, color = if (selected == tab) Color.White else Muted, fontSize = 9.sp)
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable { onSelect(tab) }.padding(horizontal = 2.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if (selected == tab) Color(0xFF303030) else Color.Transparent).padding(horizontal = 13.dp, vertical = 5.dp)) {
+                    Icon(icon, contentDescription = tab.title, tint = if (selected == tab) Accent else Muted, modifier = Modifier.size(21.dp))
+                }
+                Text(tab.title, color = if (selected == tab) Color.White else Muted, fontSize = 9.sp, maxLines = 1)
             }
         }
     }
