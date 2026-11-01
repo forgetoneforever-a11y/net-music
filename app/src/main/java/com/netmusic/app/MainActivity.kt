@@ -468,7 +468,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
     var query by remember { mutableStateOf("") }
     var remote by remember { mutableStateOf<List<CatalogTrack>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Ищи музыку сразу в Audius и Jamendo.") }
+    var status by remember { mutableStateOf("Ищи музыку в онлайн-каталогах NET MUSIC.") }
     var searched by remember { mutableStateOf(false) }
 
     fun toggleCatalogFavorite(track: CatalogTrack) {
@@ -517,7 +517,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
             remote = emptyList()
             loading = false
             searched = false
-            status = "Ищи музыку сразу в Audius и Jamendo."
+            status = "Ищи музыку в онлайн-каталогах NET MUSIC."
             return@LaunchedEffect
         }
         kotlinx.coroutines.delay(300)
