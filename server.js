@@ -282,6 +282,80 @@ function normalizeJamendo(track) {
   };
 }
 
+// Internet Archive: use only files whose item metadata declares a reusable
+// Creative Commons BY/BY-SA/BY-ND or public-domain license. The uploader-supplied
+// license metadata is not independently verified, so the app links back to the item.
+function isReusableArchiveLicense(value) {
+  const licenses = Array.isArray(value) ? value : [value];
+  return licenses.some(raw => {
+    const license = safeText(String(raw || "")).toLowerCase();
+    return /^https?:\\/\\/creativecommons\\.org\\/licenses\\/by(?:-sa|-nd)?\\//.test(license)
+      || /^https?:\\/\\/creativecommons\\.org\\/publicdomain\\/(?:zero|mark)\\//.test(license);
+  });
+}
+
+function archiveAudioFile(files) {
+  if (!Array.isArray(files)) return null;
+  const candidates = files.filter(file => {
+    const name = safeText(file?.name);
+    const format = safeText(file?.format).toLowerCase();
+    const size = Number(file?.size || 0);
+    return /\\.mp3$/i.test(name) && size > 0
+      && !name.startsWith("__") && !name.endsWith("_meta.xml")
+      && (format.includes("mp3") || format.includes("mpeg"));
+  });
+  candidates.sort((a, b) => Number(b.source === "original") - Number(a.source === "original") || Number(b.size || 0) - Number(a.size || 0));
+  return candidates[0] || null;
+}
+
+async function searchInternetArchive(searchTerm, limit) {
+  const escaped = String(searchTerm).replace(/[+\\-!(){}\\[\\]^"~*?:\\\\/]/g, "\\\\async function fetchJson(url, timeoutMs = 9000) {");
+  const url = new URL("https://archive.org/advancedsearch.php");
+  url.searchParams.set("q", `mediatype:audio AND "${escaped}"`);
+  url.searchParams.set("fl[]", "identifier,title,creator,licenseurl,mediatype");
+  url.searchParams.set("rows", String(Math.min(10, Math.max(4, limit))));
+  url.searchParams.set("page", "1");
+  url.searchParams.set("output", "json");
+  url.searchParams.set("sort[]", "downloads desc");
+
+  const search = await fetchJson(url, 10000);
+  const docs = Array.isArray(search?.response?.docs) ? search.response.docs : [];
+  const candidates = docs.filter(item => item?.identifier && item.mediatype === "audio" && isReusableArchiveLicense(item.licenseurl));
+  const metadataResults = await Promise.all(candidates.slice(0, 8).map(async item => {
+    try {
+      const metadata = await fetchJson(`https://archive.org/metadata/${encodeURIComponent(item.identifier)}`, 10000);
+      const license = metadata?.metadata?.licenseurl || item.licenseurl;
+      if (!isReusableArchiveLicense(license)) return null;
+      const file = archiveAudioFile(metadata?.files);
+      if (!file) return null;
+      const title = safeText(metadata.metadata?.title || item.title, "Без названия");
+      const creatorValue = metadata.metadata?.creator || item.creator || "Неизвестный исполнитель";
+      const artist = Array.isArray(creatorValue) ? safeText(String(creatorValue[0]), "Неизвестный исполнитель") : safeText(String(creatorValue), "Неизвестный исполнитель");
+      const identifier = String(item.identifier);
+      const licenseText = Array.isArray(license) ? license.join(", ") : String(license);
+      return {
+        id: `archive:${identifier}:${file.name}`,
+        provider: "Internet Archive",
+        playbackType: "full",
+        providerId: identifier,
+        title,
+        artist,
+        artwork: `https://archive.org/services/img/${encodeURIComponent(identifier)}`,
+        duration: 0,
+        streamUrl: `https://archive.org/download/${encodeURIComponent(identifier)}/${encodeURIComponent(file.name)}`,
+        downloadUrl: null,
+        downloadAllowed: false,
+        license: licenseText,
+        externalUrl: `https://archive.org/details/${encodeURIComponent(identifier)}`
+      };
+    } catch (error) {
+      console.warn("[catalog] Internet Archive item metadata failed:", error.message);
+      return null;
+    }
+  }));
+  return metadataResults.filter(Boolean);
+}
+
 async function fetchJson(url, timeoutMs = 9000) {
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
@@ -413,6 +487,14 @@ app.get("/api/catalog/search", async (req, res) => {
     })).catch(error => {
       console.warn("[catalog] Deezer search failed:", error.message);
       return { provider: "Deezer", tracks: [], error: "unavailable" };
+    }));
+
+    jobs.push(searchInternetArchive(searchTerm, limit).then(tracks => ({
+      provider: "Internet Archive",
+      tracks
+    })).catch(error => {
+      console.warn("[catalog] Internet Archive search failed:", error.message);
+      return { provider: "Internet Archive", tracks: [], error: "unavailable" };
     }));
 
     if (JAMENDO_CLIENT_ID) {
