@@ -46,7 +46,8 @@ fun MyMusicScreen(
     onRequestPermission: () -> Unit,
     onRefresh: () -> Unit,
     onPlay: (Int) -> Unit,
-    onToggleFavorite: (AudioTrack) -> Unit
+    onToggleFavorite: (AudioTrack) -> Unit,
+    onCloudMerge: (JSONObject) -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("net_music_preferences", Context.MODE_PRIVATE) }
@@ -109,7 +110,18 @@ fun MyMusicScreen(
             IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = MyAccent) }
         }
         Spacer(Modifier.height(14.dp))
-        CloudAccountCard(favoriteJson, historyJson, playlistJson, downloadJson)
+        CloudAccountCard(favoriteJson, historyJson, playlistJson, downloadJson) { cloud ->
+            onCloudMerge(cloud)
+            val cloudPlaylists = cloud.optJSONArray("playlists") ?: JSONArray()
+            val parsed = buildList {
+                for (i in 0 until cloudPlaylists.length()) {
+                    val item = cloudPlaylists.optJSONObject(i) ?: continue
+                    val ids = item.optJSONArray("trackIds") ?: item.optJSONArray("ids") ?: JSONArray()
+                    add(UserPlaylist(item.optString("id"), item.optString("name"), (0 until ids.length()).map { ids.optString(it) }))
+                }
+            }
+            if (parsed.isNotEmpty()) savePlaylists((playlists + parsed).distinctBy { it.id })
+        }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("БИБЛИОТЕКА", color = MyMuted, fontSize = 10.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
@@ -221,7 +233,7 @@ private fun EmptyMyMusic(title: String, subtitle: String, icon: androidx.compose
 }
 
 @Composable
-private fun CloudAccountCard(favorites: String, history: String, playlists: String, downloads: String) {
+private fun CloudAccountCard(favorites: String, history: String, playlists: String, downloads: String, onCloudMerge: (JSONObject) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("net_music_cloud", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
@@ -297,7 +309,8 @@ private fun CloudAccountCard(favorites: String, history: String, playlists: Stri
                 scope.launch {
                     try {
                         val payload = JSONObject().put("favorites", JSONArray(favorites)).put("history", JSONArray(history)).put("playlists", JSONArray(playlists)).put("downloads", JSONArray(downloads))
-                        val result = api("/api/cloud/sync", "PUT", payload)
+                        val result = api("/api/cloud/sync", "POST", payload)
+                        onCloudMerge(result)
                         lastSync = result.optString("updatedAt")
                         status = "Библиотека синхронизирована"
                     } catch (e: Exception) { status = e.message ?: "Ошибка синхронизации" }
