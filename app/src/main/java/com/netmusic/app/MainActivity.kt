@@ -2,6 +2,7 @@ package com.netmusic.app
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -49,6 +50,9 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 
 private val Background = Color(0xFF080808)
 private val Panel = Color(0xFF191919)
@@ -61,6 +65,62 @@ data class AudioTrack(val id: Long, val title: String, val artist: String, val a
 class MainActivity : ComponentActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController by mutableStateOf<MediaController?>(null)
+    private var spotifyStatus by mutableStateOf("Не подключён")
+
+    private fun startSpotifyLogin() {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://net-music.onrender.com/auth/spotify")))
+    }
+
+    private fun handleSpotifyCallback(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "netmusic" || uri.host != "spotify" || uri.path != "/callback") return
+
+        val ticket = uri.getQueryParameter("ticket")
+        if (ticket.isNullOrBlank()) {
+            spotifyStatus = "Не удалось получить билет авторизации"
+            return
+        }
+
+        spotifyStatus = "Завершаем подключение…"
+        ioExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL("https://net-music.onrender.com/auth/spotify/exchange").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                val payload = JSONObject().put("ticket", ticket).toString()
+                connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                val code = connection.responseCode
+                val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) throw IllegalStateException("Token exchange failed: HTTP $code")
+                val tokens = JSONObject(body)
+                val accessToken = tokens.optString("access_token")
+                if (accessToken.isBlank()) throw IllegalStateException("Spotify access token is missing")
+
+                getSharedPreferences("net_music_secure_tokens", MODE_PRIVATE).edit()
+                    .putString("spotify_access_token", accessToken)
+                    .putString("spotify_refresh_token", tokens.optString("refresh_token"))
+                    .putLong("spotify_expires_at", System.currentTimeMillis() + tokens.optLong("expires_in", 3600L) * 1000L)
+                    .apply()
+                runOnUiThread { spotifyStatus = "Spotify подключён" }
+            } catch (error: Exception) {
+                runOnUiThread { spotifyStatus = "Ошибка подключения Spotify" }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSpotifyCallback(intent)
+    }
 
     override fun onStart() {
         super.onStart()
@@ -81,7 +141,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { NetMusicApp(mediaController) } }
+        spotifyStatus = if (getSharedPreferences("net_music_secure_tokens", MODE_PRIVATE)
+            .getString("spotify_access_token", null).isNullOrBlank()) "Не подключён" else "Spotify подключён"
+        handleSpotifyCallback(intent)
+        setContent { MaterialTheme { NetMusicApp(mediaController, spotifyStatus, ::startSpotifyLogin) } }
     }
 }
 
@@ -90,7 +153,7 @@ private enum class Tab(val title: String) {
 }
 
 @Composable
-private fun NetMusicApp(player: Player?) {
+private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify: () -> Unit) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(Tab.HOME) }
     var showPlayer by remember { mutableStateOf(false) }
@@ -206,7 +269,7 @@ private fun NetMusicApp(player: Player?) {
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
                         Tab.SEARCH -> SearchScreen(tracks, favoriteIds, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
-                        Tab.SETTINGS -> SettingsScreen()
+                        Tab.SETTINGS -> SettingsScreen(spotifyStatus, onConnectSpotify)
                     }
                 }
             }
@@ -361,10 +424,23 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, onPla
 }
 
 @Composable
-private fun SettingsScreen() {
+private fun SettingsScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Настройки", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        listOf("Подключённые сервисы", "Качество звука", "Оформление", "Хранилище", "О приложении").forEach {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Spotify", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(spotifyStatus, color = if (spotifyStatus == "Spotify подключён") Color(0xFF1DB954) else Muted, fontSize = 12.sp)
+            }
+            Text("Подключи аккаунт, чтобы NET MUSIC мог получить разрешённый доступ к Spotify.", color = Muted, fontSize = 12.sp)
+            Button(onClick = onConnectSpotify, modifier = Modifier.fillMaxWidth()) {
+                Text(if (spotifyStatus == "Spotify подключён") "Подключить другой аккаунт" else "Подключить Spotify")
+            }
+        }
+        listOf("Качество звука", "Оформление", "Хранилище", "О приложении").forEach {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(it, color = Color.White, fontSize = 16.sp)
                 Text("›", color = Muted, fontSize = 22.sp)
