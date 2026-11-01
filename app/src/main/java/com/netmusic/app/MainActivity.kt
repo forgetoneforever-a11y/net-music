@@ -610,6 +610,7 @@ private fun SettingsScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) 
 private fun PlayerScreen(player: Player?, title: String, artist: String, track: AudioTrack?, isPlaying: Boolean, onClose: () -> Unit) {
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    var showQueue by remember { mutableStateOf(false) }
     LaunchedEffect(player, isPlaying) {
         while (true) {
             position = player?.currentPosition ?: 0L
@@ -621,7 +622,7 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("⌄", color = Color.White, fontSize = 30.sp, modifier = Modifier.clickable { onClose() })
             Text("СЕЙЧАС ИГРАЕТ", color = Muted, fontSize = 11.sp, letterSpacing = 2.sp)
-            Text("•••", color = Color.White)
+            Text("Очередь", color = Accent, fontSize = 13.sp, modifier = Modifier.clickable { showQueue = true })
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
             if (track != null) {
@@ -655,6 +656,39 @@ private fun PlayerScreen(player: Player?, title: String, artist: String, track: 
                 }
             }
         }
+    }
+    if (showQueue) {
+        val queueItems = (0 until (player?.mediaItemCount ?: 0)).map { index ->
+            val metadata = player?.getMediaItemAt(index)?.mediaMetadata
+            Triple(index, metadata?.title?.toString().orEmpty().ifBlank { "Трек " + (index + 1) }, metadata?.artist?.toString().orEmpty())
+        }
+        AlertDialog(
+            onDismissRequest = { showQueue = false },
+            title = { Text("Очередь воспроизведения") },
+            text = {
+                if (queueItems.isEmpty()) Text("Очередь пуста")
+                else LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    itemsIndexed(queueItems) { _, item ->
+                        Row(Modifier.fillMaxWidth().clickable {
+                            player?.seekToDefaultPosition(item.first)
+                            player?.play()
+                            showQueue = false
+                        }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (item.first == player?.currentMediaItemIndex) Icons.Default.VolumeUp else Icons.Default.MusicNote, null, tint = if (item.first == player?.currentMediaItemIndex) Accent else Muted)
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(item.second, color = Color.White, maxLines = 1)
+                                Text(item.third, color = Muted, fontSize = 11.sp, maxLines = 1)
+                            }
+                            if (item.first == player?.currentMediaItemIndex) Text("Сейчас", color = Accent, fontSize = 10.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showQueue = false }) { Text("Закрыть") } },
+            containerColor = Panel,
+            titleContentColor = Color.White,
+            textContentColor = Muted
+        )
     }
 }
 
