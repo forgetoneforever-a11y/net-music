@@ -59,6 +59,7 @@ import java.util.concurrent.Executors
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
+import org.json.JSONArray
 
 private val Background = Color(0xFF080808)
 private val Panel = Color(0xFF191919)
@@ -290,7 +291,25 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() },
                             onPlay = { playTrack(it) },
-                            onToggleFavorite = { toggleFavorite(it) }
+                            onToggleFavorite = { toggleFavorite(it) },
+                            onCloudMerge = { cloud ->
+                                val cloudFavorites = cloud.optJSONArray("favorites") ?: JSONArray()
+                                val favoriteSet = buildSet {
+                                    for (i in 0 until cloudFavorites.length()) {
+                                        cloudFavorites.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }?.let(::add)
+                                    }
+                                }
+                                favoriteIds = favoriteIds + favoriteSet
+                                preferences.edit().putStringSet("favorites", favoriteIds).apply()
+                                val cloudHistory = cloud.optJSONArray("history") ?: JSONArray()
+                                val mergedHistory = buildList {
+                                    for (i in 0 until cloudHistory.length()) {
+                                        cloudHistory.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }?.let(::add)
+                                    }
+                                }
+                                recentIds = (mergedHistory + recentIds).distinct().take(30)
+                                preferences.edit().putString("recent_tracks", recentIds.joinToString(",")).apply()
+                            }
                         )
                         Tab.SPOTIFY -> SpotifyScreen(spotifyStatus, onConnectSpotify)
                         Tab.SETTINGS -> SettingsScreen(spotifyStatus, onConnectSpotify, player, tracks.size, recentIds.size, onClearHistory = { recentIds = emptyList(); preferences.edit().remove("recent_tracks").apply() }, onRefreshLibrary = { scanLibrary() })
