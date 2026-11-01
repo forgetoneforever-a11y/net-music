@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
                 val accessToken = tokens.optString("access_token")
                 if (accessToken.isBlank()) throw IllegalStateException("Spotify access token is missing")
 
-                getSharedPreferences("net_music_secure_tokens", MODE_PRIVATE).edit()
+                getSharedPreferences("net_music_tokens", MODE_PRIVATE).edit()
                     .putString("spotify_access_token", accessToken)
                     .putString("spotify_refresh_token", tokens.optString("refresh_token"))
                     .putLong("spotify_expires_at", System.currentTimeMillis() + tokens.optLong("expires_in", 3600L) * 1000L)
@@ -141,7 +141,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        spotifyStatus = if (getSharedPreferences("net_music_secure_tokens", MODE_PRIVATE)
+        spotifyStatus = if (getSharedPreferences("net_music_tokens", MODE_PRIVATE)
             .getString("spotify_access_token", null).isNullOrBlank()) "Не подключён" else "Spotify подключён"
         handleSpotifyCallback(intent)
         setContent { MaterialTheme { NetMusicApp(mediaController, spotifyStatus, ::startSpotifyLogin) } }
