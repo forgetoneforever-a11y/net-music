@@ -266,7 +266,7 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                     if (screen == "player") {
                         PlayerScreen(player, currentTitle, currentArtist, tracks.getOrNull(currentIndex), isPlaying, { showPlayer = false })
                     } else when (Tab.valueOf(screen)) {
-                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { openFavorites = false; selectedTab = Tab.LIBRARY }, onOpenFavorites = { openFavorites = true; selectedTab = Tab.LIBRARY }, onOpenSpotify = { selectedTab = Tab.SPOTIFY }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
+                        Tab.HOME -> HomeScreen(tracks.size, favoriteIds.size, recentIds.mapNotNull { id -> tracks.find { it.id.toString() == id } }, loading, permissionGranted, onOpenLibrary = { openFavorites = false; selectedTab = Tab.LIBRARY }, onOpenFavorites = { openFavorites = true; selectedTab = Tab.LIBRARY }, onOpenSpotify = { selectedTab = Tab.SEARCH }, onRefresh = { scanLibrary() }, onPlayRecent = { track -> playTrack(tracks.indexOfFirst { it.id == track.id }) })
                         Tab.SEARCH -> SearchScreen(tracks, favoriteIds, player, onPlayLocal = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds, openFavorites,
                             onRequestPermission = { requestPermission.launch(permission) },
@@ -332,8 +332,8 @@ private fun HomeScreen(trackCount: Int, favoriteCount: Int, recentTracks: List<A
                     Text("S", color = Color(0xFF1DB954), fontWeight = FontWeight.Black, fontSize = 22.sp)
                 }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text("Spotify", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Поиск треков и переход к прослушиванию", color = Muted, fontSize = 11.sp)
+                    Text("Audius + Jamendo", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Поиск и прослушивание прямо в NET MUSIC", color = Muted, fontSize = 11.sp)
                 }
                 Icon(Icons.Default.ChevronRight, null, tint = Muted)
             }
