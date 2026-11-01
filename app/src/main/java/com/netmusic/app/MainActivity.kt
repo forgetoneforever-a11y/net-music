@@ -450,7 +450,7 @@ private fun LibraryScreen(tracks: List<AudioTrack>, loading: Boolean, granted: B
     }
 }
 
-private data class CatalogTrack(val id: String, val provider: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String, val downloadUrl: String?, val downloadAllowed: Boolean, val license: String)
+private data class CatalogTrack(val id: String, val provider: String, val playbackType: String, val title: String, val artist: String, val artwork: String, val duration: Long, val streamUrl: String, val downloadUrl: String?, val downloadAllowed: Boolean, val license: String, val externalUrl: String?)
 
 private fun normalizeTrackSearch(value: String): String =
     java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
@@ -541,7 +541,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                             val item = array.optJSONObject(i) ?: continue
                             val stream = item.optString("streamUrl")
                             if (stream.isBlank()) continue
-                            add(CatalogTrack(item.optString("id"), item.optString("provider"), item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream, item.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("downloadAllowed", false), item.optString("license")))
+                            add(CatalogTrack(item.optString("id"), item.optString("provider"), item.optString("playbackType", "preview"), item.optString("title", "Без названия"), item.optString("artist", "Неизвестный исполнитель"), item.optString("artwork"), item.optLong("duration", 0L) * 1000L, stream, item.optString("downloadUrl").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("downloadAllowed", false), item.optString("license"), item.optString("externalUrl").takeIf { it.startsWith("https://") }))
                         }
                     }
                     val providers = json.optJSONArray("providers")
@@ -616,7 +616,7 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                         }) {
                             Text(track.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                             Text(track.artist, color = Muted, fontSize = 11.sp, maxLines = 1)
-                            Text(track.provider, color = Accent, fontSize = 9.sp)
+                            Text(track.provider + if (track.playbackType == "full") " · Полная версия" else " · Превью", color = if (track.playbackType == "full") Accent else Muted, fontSize = 9.sp)
                         }
                         IconButton(onClick = {
                             val p = player ?: return@IconButton
@@ -626,6 +626,12 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
                             if (empty) { p.prepare(); p.play() }
                             Toast.makeText(context, "Добавлено в очередь", Toast.LENGTH_SHORT).show()
                         }) { Icon(Icons.Default.QueueMusic, "В очередь", tint = Muted) }
+                        if (track.playbackType == "preview" && track.externalUrl != null) {
+                            IconButton(onClick = {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(track.externalUrl))) }
+                                    .onFailure { Toast.makeText(context, "Не удалось открыть страницу трека", Toast.LENGTH_SHORT).show() }
+                            }) { Icon(Icons.Default.OpenInNew, "Полная версия на сайте сервиса", tint = Accent) }
+                        }
                         IconButton(onClick = { toggleCatalogFavorite(track) }) {
                             Icon(Icons.Default.Favorite, "В избранное", tint = if (track.id in catalogFavorites) Color(0xFFE45B68) else Muted)
                         }
