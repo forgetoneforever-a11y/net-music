@@ -3,13 +3,13 @@ import { randomBytes } from "node:crypto";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID?.trim();
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET?.trim();
 const SPOTIFY_REDIRECT_URI =
-  process.env.SPOTIFY_REDIRECT_URI ||
+  process.env.SPOTIFY_REDIRECT_URI?.trim() ||
   "https://net-music.onrender.com/auth/spotify/callback";
 const APP_REDIRECT_URI =
-  process.env.APP_REDIRECT_URI || "netmusic://spotify/callback";
+  process.env.APP_REDIRECT_URI?.trim() || "netmusic://spotify/callback";
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb" }));
