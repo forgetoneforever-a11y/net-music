@@ -47,8 +47,6 @@ class PlaybackService : MediaSessionService() {
                 )
                 setHandleAudioBecomingNoisy(true)
                 setWakeMode(C.WAKE_MODE_LOCAL)
-                setSeekBackIncrementMs(10_000)
-                setSeekForwardIncrementMs(30_000)
             }
 
         mediaSession = MediaSession.Builder(this, player).build()
