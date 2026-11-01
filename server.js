@@ -359,7 +359,11 @@ app.get("/api/catalog/search", async (req, res) => {
     const key = `${normalizeSearchText(track.title)}|${normalizeSearchText(track.artist)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push({ ...track, relevance: Math.max(...variants.map(term => searchScore(term, track))) });
+    const relevance = Math.max(...variants.map(term => searchScore(term, track)));
+    // Provider search can return broad/noisy matches. Never show a result
+    // that has no textual overlap with either the original or transliterated query.
+    if (relevance < 20) continue;
+    unique.push({ ...track, relevance });
   }
   unique.sort((a, b) => b.relevance - a.relevance || a.title.localeCompare(b.title, "ru"));
   const providers = [...providerMap.values()].map(({ provider, tracks: items, error }) => ({
