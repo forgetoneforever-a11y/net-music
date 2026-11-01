@@ -288,19 +288,28 @@ function normalizeJamendo(track) {
 function isReusableArchiveLicense(value) {
   const licenses = Array.isArray(value) ? value : [value];
   return licenses.some(raw => {
-    const license = safeText(String(raw || "")).toLowerCase();
-    return /^https?:\\/\\/creativecommons\\.org\\/licenses\\/by(?:-sa|-nd)?\\//.test(license)
-      || /^https?:\\/\\/creativecommons\\.org\\/publicdomain\\/(?:zero|mark)\\//.test(license);
+    try {
+      const url = new URL(String(raw || ""));
+      if (url.hostname.toLowerCase() !== "creativecommons.org") return false;
+      const path = url.pathname.toLowerCase();
+      return path.startsWith("/licenses/by/")
+        || path.startsWith("/licenses/by-sa/")
+        || path.startsWith("/licenses/by-nd/")
+        || path.startsWith("/publicdomain/zero/")
+        || path.startsWith("/publicdomain/mark/");
+    } catch {
+      return false;
+    }
   });
 }
 
 function archiveAudioFile(files) {
   if (!Array.isArray(files)) return null;
   const candidates = files.filter(file => {
-    const name = safeText(file?.name);
+    const name = safeText(file?.name).toLowerCase();
     const format = safeText(file?.format).toLowerCase();
     const size = Number(file?.size || 0);
-    return /\\.mp3$/i.test(name) && size > 0
+    return name.endsWith(".mp3") && size > 0
       && !name.startsWith("__") && !name.endsWith("_meta.xml")
       && (format.includes("mp3") || format.includes("mpeg"));
   });
@@ -309,7 +318,8 @@ function archiveAudioFile(files) {
 }
 
 async function searchInternetArchive(searchTerm, limit) {
-  const escaped = String(searchTerm).replace(/[^\\p{L}\\p{N}\\s]/gu, " ").replace(/\\s+/g, " ").trim();
+  const blocked = '"+-!(){}[]^~*?:\\\\/';
+  const escaped = String(searchTerm).split("").map(char => blocked.includes(char) ? " " : char).join("").replaceAll("  ", " ").trim();
   const url = new URL("https://archive.org/advancedsearch.php");
   url.searchParams.set("q", `mediatype:audio AND "${escaped}"`);
   url.searchParams.set("fl[]", "identifier,title,creator,licenseurl,mediatype");
