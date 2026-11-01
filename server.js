@@ -309,7 +309,7 @@ function archiveAudioFile(files) {
 }
 
 async function searchInternetArchive(searchTerm, limit) {
-  const escaped = String(searchTerm).replace(/[+\\-!(){}\\[\\]^"~*?:\\\\/]/g, "\\\\async function fetchJson(url, timeoutMs = 9000) {");
+  const escaped = String(searchTerm).replace(/[^\\p{L}\\p{N}\\s]/gu, " ").replace(/\\s+/g, " ").trim();
   const url = new URL("https://archive.org/advancedsearch.php");
   url.searchParams.set("q", `mediatype:audio AND "${escaped}"`);
   url.searchParams.set("fl[]", "identifier,title,creator,licenseurl,mediatype");
