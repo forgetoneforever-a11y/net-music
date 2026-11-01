@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val title: String) {
-    HOME("Главная"), LIBRARY("Медиатека"), SEARCH("Поиск"), SETTINGS("Настройки")
+    HOME("Главная"), LIBRARY("Медиатека"), SPOTIFY("Spotify"), SETTINGS("Настройки")
 }
 
 @Composable
@@ -268,7 +268,7 @@ private fun NetMusicApp(player: Player?, spotifyStatus: String, onConnectSpotify
                         Tab.LIBRARY -> LibraryScreen(tracks, loading, permissionGranted, favoriteIds,
                             onRequestPermission = { requestPermission.launch(permission) },
                             onRefresh = { scanLibrary() }, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
-                        Tab.SEARCH -> SearchScreen(tracks, favoriteIds, onPlay = { playTrack(it) }, onToggleFavorite = { toggleFavorite(it) })
+                        Tab.SPOTIFY -> SpotifyScreen(spotifyStatus, onConnectSpotify)
                         Tab.SETTINGS -> SettingsScreen(spotifyStatus, onConnectSpotify)
                     }
                 }
@@ -423,6 +423,152 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, onPla
     }
 }
 
+private data class SpotifyTrack(
+    val id: String,
+    val name: String,
+    val artist: String,
+    val album: String,
+    val imageUrl: String,
+    val previewUrl: String?
+)
+
+@Composable
+private fun SpotifyScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("net_music_tokens", android.content.Context.MODE_PRIVATE) }
+    val accessToken = remember(spotifyStatus) { prefs.getString("spotify_access_token", null).orEmpty() }
+    var query by remember { mutableStateOf("") }
+    var tracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf(if (accessToken.isBlank()) "Подключи Spotify, чтобы искать музыку из каталога." else "Ищи любимые треки, исполнителей и альбомы.") }
+    var searched by remember { mutableStateOf(false) }
+
+    fun searchSpotify() {
+        if (accessToken.isBlank()) {
+            message = "Сначала подключи аккаунт Spotify."
+            return
+        }
+        if (query.isBlank()) {
+            message = "Введи название трека или исполнителя."
+            return
+        }
+        loading = true
+        searched = true
+        ioExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
+                connection = (URL("https://api.spotify.com/v1/search?q=$encoded&type=track&limit=20").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("Authorization", "Bearer $accessToken")
+                }
+                val code = connection.responseCode
+                val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code == 401) throw IllegalStateException("Сессия Spotify истекла. Подключи аккаунт заново.")
+                if (code == 403) throw IllegalStateException("Spotify не разрешил поиск для этого аккаунта.")
+                if (code !in 200..299) throw IllegalStateException("Spotify вернул ошибку HTTP $code.")
+                val items = JSONObject(body).optJSONObject("tracks")?.optJSONArray("items")
+                val found = mutableListOf<SpotifyTrack>()
+                if (items != null) for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val artists = item.optJSONArray("artists")
+                    val artistNames = mutableListOf<String>()
+                    if (artists != null) for (j in 0 until artists.length()) {
+                        artists.optJSONObject(j)?.optString("name")?.takeIf { it.isNotBlank() }?.let(artistNames::add)
+                    }
+                    val album = item.optJSONObject("album")
+                    val images = album?.optJSONArray("images")
+                    val image = images?.optJSONObject(0)?.optString("url").orEmpty()
+                    found += SpotifyTrack(
+                        item.optString("id"), item.optString("name"),
+                        artistNames.joinToString(", ").ifBlank { "Неизвестный исполнитель" },
+                        album?.optString("name").orEmpty(), image,
+                        item.optString("preview_url").takeIf { it.isNotBlank() && it != "null" }
+                    )
+                }
+                Handler(Looper.getMainLooper()).post {
+                    tracks = found
+                    message = if (found.isEmpty()) "Ничего не найдено. Попробуй другой запрос." else "Найдено треков: ${found.size}"
+                    loading = false
+                }
+            } catch (error: Exception) {
+                Handler(Looper.getMainLooper()).post {
+                    tracks = emptyList()
+                    message = error.message ?: "Не удалось выполнить поиск."
+                    loading = false
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp)) {
+        Text("Spotify", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text("Музыкальный каталог", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(18.dp))
+        if (accessToken.isBlank()) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Panel).padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("♫", color = Color(0xFF1DB954), fontSize = 42.sp, fontWeight = FontWeight.Bold)
+                Text("Подключи Spotify", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("После авторизации здесь появятся поиск по каталогу Spotify и карточки найденных треков.", color = Muted)
+                Button(onClick = onConnectSpotify, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954), contentColor = Color.Black)) {
+                    Text("Подключить аккаунт")
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(Color(0xFF1DB954)))
+                Text(" Аккаунт подключён", color = Color(0xFF1DB954), fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = query, onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Трек или исполнитель") },
+                singleLine = true,
+                trailingIcon = {
+                    IconButton(onClick = { searchSpotify() }, enabled = !loading) {
+                        Icon(Icons.Default.Search, "Искать", tint = Color.White)
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF1DB954), unfocusedBorderColor = Panel,
+                    cursorColor = Color(0xFF1DB954)
+                )
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(message, color = Muted, fontSize = 12.sp)
+            if (loading) {
+                CircularProgressIndicator(color = Color(0xFF1DB954), modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(tracks) { _, track ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (track.imageUrl.isNotBlank()) {
+                                AsyncImage(model = track.imageUrl, contentDescription = track.album, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)))
+                            } else {
+                                Box(Modifier.size(54.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF292929)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.MusicNote, null, tint = Color(0xFF1DB954))
+                                }
+                            }
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(track.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Text(track.artist, color = Muted, fontSize = 12.sp, maxLines = 1)
+                                Text(track.album, color = Muted.copy(alpha = .7f), fontSize = 10.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SettingsScreen(spotifyStatus: String, onConnectSpotify: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -521,7 +667,7 @@ private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
             val icon = when (tab) {
                 Tab.HOME -> Icons.Default.Home
                 Tab.LIBRARY -> Icons.Default.Folder
-                Tab.SEARCH -> Icons.Default.Search
+                Tab.SPOTIFY -> Icons.Default.MusicNote
                 Tab.SETTINGS -> Icons.Default.Settings
             }
             Column(Modifier.clip(RoundedCornerShape(14.dp)).clickable { onSelect(tab) }.padding(horizontal = 14.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
