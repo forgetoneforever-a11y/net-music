@@ -196,6 +196,48 @@ export function attachCloudRoutes(app) {
     } catch (error) { sendError(res, error); }
   });
 
+  app.post("/api/cloud/sync", authRequired, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const fields = ["favorites", "history", "playlists", "downloads"];
+      for (const field of fields) {
+        if (body[field] !== undefined && !validCollection(body[field], field === "history" ? 1000 : 500)) {
+          return res.status(400).json({ error: "invalid_sync_data", message: "Некорректные данные облачной библиотеки: " + field });
+        }
+      }
+      await ensureSchema();
+      const db = getPool();
+      const current = await db.query("SELECT favorites, history, playlists, downloads FROM netmusic_cloud_state WHERE user_id = $1", [req.cloudUserId]);
+      const previous = current.rows[0] || {};
+      const merge = (before, incoming, limit) => {
+        const map = new Map();
+        for (const item of [...(Array.isArray(before) ? before : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+          if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+          const key = String(item.id || item.name || JSON.stringify(item));
+          map.set(key, item);
+        }
+        return [...map.values()].slice(-limit);
+      };
+      const merged = {
+        favorites: merge(previous.favorites, body.favorites, 500),
+        history: merge(body.history, previous.history, 1000),
+        playlists: merge(previous.playlists, body.playlists, 500),
+        downloads: merge(previous.downloads, body.downloads, 500)
+      };
+      const result = await db.query(
+        `INSERT INTO netmusic_cloud_state(user_id, favorites, history, playlists, downloads, updated_at)
+         VALUES($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, NOW())
+         ON CONFLICT(user_id) DO UPDATE SET
+           favorites = EXCLUDED.favorites, history = EXCLUDED.history,
+           playlists = EXCLUDED.playlists, downloads = EXCLUDED.downloads, updated_at = NOW()
+         RETURNING updated_at`,
+        [req.cloudUserId, JSON.stringify(merged.favorites), JSON.stringify(merged.history), JSON.stringify(merged.playlists), JSON.stringify(merged.downloads)]
+      );
+      res.set("Cache-Control", "no-store");
+      res.json({ ...merged, saved: true, updatedAt: result.rows[0].updated_at });
+    } catch (error) { sendError(res, error); }
+  });
+
   app.put("/api/cloud/sync", authRequired, async (req, res) => {
     try {
       const body = req.body || {};
