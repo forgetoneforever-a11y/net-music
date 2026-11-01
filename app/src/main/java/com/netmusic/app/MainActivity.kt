@@ -431,6 +431,46 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
     var status by remember { mutableStateOf("Ищи музыку сразу в Audius и Jamendo.") }
     var searched by remember { mutableStateOf(false) }
 
+    fun toggleCatalogFavorite(track: CatalogTrack) {
+        catalogFavorites = if (track.id in catalogFavorites) catalogFavorites - track.id else catalogFavorites + track.id
+        prefs.edit().putStringSet("catalog_favorites", catalogFavorites).apply()
+    }
+
+    fun downloadCatalogTrack(track: CatalogTrack) {
+        val link = track.downloadUrl
+        if (track.provider != "Jamendo" || !track.downloadAllowed || link.isNullOrBlank()) {
+            Toast.makeText(context, "Скачивание для этого трека недоступно", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val uri = Uri.parse(link)
+            val host = uri.host.orEmpty().lowercase()
+            if (uri.scheme != "https" || (host != "api.jamendo.com" && !host.endsWith(".jamendo.com"))) {
+                Toast.makeText(context, "Ссылка на загрузку не прошла проверку", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val safeName = (track.artist + " - " + track.title).map { if (it.isLetterOrDigit() || it == ' ' || it == '-' || it == '_') it else '_' }.joinToString("").take(90).ifBlank { "NET_MUSIC_track" }
+            val request = DownloadManager.Request(uri)
+                .setTitle(track.title)
+                .setDescription("NET MUSIC · " + track.artist)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_MUSIC, safeName + "-" + track.id.substringAfter(":") + ".mp3")
+            val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            manager.enqueue(request)
+            Toast.makeText(context, "Загрузка началась", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(context, "Не удалось начать загрузку", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) { onDownloadsChanged() }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
     LaunchedEffect(query) {
         val term = query.trim()
         if (term.length < 2) {
@@ -503,22 +543,42 @@ private fun SearchScreen(tracks: List<AudioTrack>, favorites: Set<String>, playe
             else if (remote.isEmpty() && searched) Text("Ничего не найдено. Попробуй другой запрос.", color = Muted, fontSize = 13.sp)
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 itemsIndexed(remote) { _, track ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable {
-                        val p = player ?: return@clickable
-                        val metadata = MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build()
-                        p.setMediaItem(MediaItem.Builder().setUri(track.streamUrl).setMediaMetadata(metadata).build())
-                        p.prepare()
-                        p.play()
-                    }.padding(vertical = 8.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (track.artwork.isNotBlank()) AsyncImage(model = track.artwork, contentDescription = "Обложка", modifier = Modifier.size(50.dp).clip(RoundedCornerShape(11.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-                        else Box(Modifier.size(50.dp).clip(RoundedCornerShape(11.dp)).background(Panel), contentAlignment = Alignment.Center) { Icon(Icons.Default.MusicNote, null, tint = Accent) }
-                        Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).padding(vertical = 7.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(50.dp).clip(RoundedCornerShape(11.dp)).background(Panel).clickable {
+                            val p = player ?: return@clickable
+                            val metadata = MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build()
+                            p.setMediaItem(MediaItem.Builder().setUri(track.streamUrl).setMediaMetadata(metadata).build())
+                            p.prepare()
+                            p.play()
+                        }, contentAlignment = Alignment.Center) {
+                            if (track.artwork.isNotBlank()) AsyncImage(model = track.artwork, contentDescription = "Обложка", modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                            else Icon(Icons.Default.PlayArrow, "Слушать", tint = Accent)
+                        }
+                        Column(Modifier.weight(1f).padding(start = 10.dp).clickable {
+                            val p = player ?: return@clickable
+                            val metadata = MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build()
+                            p.setMediaItem(MediaItem.Builder().setUri(track.streamUrl).setMediaMetadata(metadata).build())
+                            p.prepare()
+                            p.play()
+                        }) {
                             Text(track.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                             Text(track.artist, color = Muted, fontSize = 11.sp, maxLines = 1)
                             Text(track.provider, color = Accent, fontSize = 9.sp)
                         }
-                        Text(if (track.duration > 0) formatTime(track.duration) else "", color = Muted, fontSize = 10.sp)
-                        Icon(Icons.Default.PlayArrow, "Слушать", tint = Accent)
+                        IconButton(onClick = {
+                            val p = player ?: return@IconButton
+                            val item = MediaItem.Builder().setUri(track.streamUrl).setMediaMetadata(MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build()).build()
+                            val empty = p.mediaItemCount == 0
+                            p.addMediaItem(item)
+                            if (empty) { p.prepare(); p.play() }
+                            Toast.makeText(context, "Добавлено в очередь", Toast.LENGTH_SHORT).show()
+                        }) { Icon(Icons.Default.QueueMusic, "В очередь", tint = Muted) }
+                        IconButton(onClick = { toggleCatalogFavorite(track) }) {
+                            Icon(Icons.Default.Favorite, "В избранное", tint = if (track.id in catalogFavorites) Color(0xFFE45B68) else Muted)
+                        }
+                        if (track.downloadAllowed && track.downloadUrl != null) {
+                            IconButton(onClick = { downloadCatalogTrack(track) }) { Icon(Icons.Default.Download, "Скачать", tint = Accent) }
+                        }
                     }
                 }
             }
